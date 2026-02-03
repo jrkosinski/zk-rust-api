@@ -5,11 +5,11 @@ mod controllers;
 mod services;
 
 // Import controller handlers and their macro-generated path constants
-use controllers::health_controller::{health_check, __health_check_route};
-use controllers::zk_controller::{get_zk, __get_zk_route};
+use controllers::health_controller::{__health_check_route, health_check};
+use controllers::zk_controller::{__get_zk_route, get_zk};
 use services::health_service::HealthService;
 
-use crate::services::zk_service::{self, ZKService};
+use crate::services::zk_service::ZKService;
 
 /// Root endpoint handler that returns a welcome message.
 #[get("/")]
@@ -66,7 +66,7 @@ fn build_router(container: &Container) -> Router {
         .route(__health_check_route, routing::get(health_check))
         .with_state(health_service);
 
-    let zk_router  = Router::new()
+    let zk_router = Router::new()
         .route(__get_zk_route, routing::get(get_zk))
         .with_state(zk_service);
 

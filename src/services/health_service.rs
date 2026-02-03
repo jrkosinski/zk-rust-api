@@ -12,8 +12,7 @@ pub struct HealthService {
 
 impl Injectable for HealthService {}
 
-impl HealthService
-{
+impl HealthService {
     pub fn new() -> Self {
         Self {
             //initialize dependencies here

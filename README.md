@@ -130,6 +130,7 @@ zk-rust-api/
 ## Performance
 
 This library is optimized for performance with:
+
 - LTO (Link Time Optimization) enabled
 - Single codegen unit for better optimization
 - Stripped binaries for smaller size
@@ -161,7 +162,3 @@ Licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 See [CHANGELOG.md](./CHANGELOG.md) for version history and changes.
 
 ---
-
-<div align="center">
-Made with ❤️ by the zk-rust-api team
-</div>
