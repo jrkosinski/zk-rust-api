@@ -11,13 +11,8 @@ unmaintained = "workspace"
 # Yanked crates - can be 'deny', 'warn', or 'allow'
 yanked = "warn"
 
-# Informational notices
-[advisories.notice]
-deny = "none"
-warn = "all"
-
 [licenses]
-unlicensed = "deny"
+# In version 2, all licenses not in the allow list are automatically denied
 allow = [
     "MIT",
     "Apache-2.0",
@@ -27,10 +22,6 @@ allow = [
     "ISC",
     "Unicode-DFS-2016",
 ]
-deny = []
-copyleft = "warn"
-allow-osi-fsf-free = "both"
-default = "deny"
 confidence-threshold = 0.8
 
 [bans]
