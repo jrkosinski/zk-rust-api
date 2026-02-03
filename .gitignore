@@ -27,6 +27,7 @@ cobertura.xml
 # Environment
 .env
 .env.local
+*.txt
 
 # OS
 Thumbs.db
