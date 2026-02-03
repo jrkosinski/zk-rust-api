@@ -5,7 +5,9 @@ mod controllers;
 mod services;
 
 // Import controller handlers and their macro-generated path constants
+use controllers::health_controller::{health_check, __health_check_route};
 use controllers::zk_controller::{get_zk, __get_zk_route};
+use services::health_service::HealthService;
 
 use crate::services::zk_service::{self, ZKService};
 
@@ -47,6 +49,7 @@ fn setup_container() -> Container {
     let mut container = Container::new();
 
     // Register services
+    container.register_factory(|| HealthService::new());
     container.register_factory(|| ZKService::new());
 
     container
@@ -55,7 +58,13 @@ fn setup_container() -> Container {
 /// Builds the application router using FastAPI-style route decorators
 fn build_router(container: &Container) -> Router {
     // Resolve services from container
+    let health_service = container.resolve::<HealthService>().unwrap();
     let zk_service = container.resolve::<ZKService>().unwrap();
+
+    // Build separate routers for each service with their own state
+    let health_router = Router::new()
+        .route(__health_check_route, routing::get(health_check))
+        .with_state(health_service);
 
     let zk_router  = Router::new()
         .route(__get_zk_route, routing::get(get_zk))
@@ -64,6 +73,7 @@ fn build_router(container: &Container) -> Router {
     // Merge all routers together
     router::build()
         .route(__root_route, routing::get(root))
+        .merge(health_router)
         .merge(zk_router)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
