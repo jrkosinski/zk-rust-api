@@ -49,8 +49,8 @@ fn setup_container() -> Container {
     let mut container = Container::new();
 
     // Register services
-    container.register_factory(|| HealthService::new());
-    container.register_factory(|| ZKService::new());
+    container.register_factory(HealthService::new);
+    container.register_factory(ZKService::new);
 
     container
 }
