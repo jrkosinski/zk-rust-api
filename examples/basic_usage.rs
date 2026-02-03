@@ -3,15 +3,12 @@
 /// This example demonstrates the fundamental operations of the library.
 ///
 /// Run with: cargo run --example basic_usage
-
 use tracing::info;
 use tracing_subscriber;
 
 fn main() {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     info!("Starting zk-rust-api basic example");
 
