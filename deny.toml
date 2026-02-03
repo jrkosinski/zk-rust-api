@@ -6,20 +6,10 @@ version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 ignore = []
-
-# Vulnerability advisories
-[advisories.vulnerability]
-deny = "all"
-
-# Unmaintained crates
-[advisories.unmaintained]
-deny = "none"
-warn = "all"
-
-# Yanked crates
-[advisories.yanked]
-deny = "none"
-warn = "all"
+# Unmaintained crates - can be 'all', 'workspace', 'transitive', or 'none'
+unmaintained = "workspace"
+# Yanked crates - can be 'deny', 'warn', or 'allow'
+yanked = "warn"
 
 # Informational notices
 [advisories.notice]
