@@ -1,13 +1,11 @@
-use rust_api::prelude::*;
+use halo2_proofs::dev::MockProver;
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
-    plonk::{self, Circuit, ConstraintSystem, Advice, Column, Instance, Selector},
     pasta::Fp,
-    poly::Rotation
+    plonk::{self, Advice, Circuit, Column, ConstraintSystem, Instance, Selector},
+    poly::Rotation,
 };
-use halo2_proofs::{
-    dev::MockProver,
-};
+use rust_api::prelude::*;
 
 /// Response type for the health check endpoint.
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,7 +73,11 @@ impl Circuit<Fp> for MerkleCircuit {
             ]
         });
 
-        MerkleConfig { advice, instance, s }
+        MerkleConfig {
+            advice,
+            instance,
+            s,
+        }
     }
 
     fn synthesize(
@@ -134,7 +136,9 @@ impl ZKService {
         };
 
         let prover = MockProver::run(4, &circuit, vec![vec![root]]).unwrap();
-        
-        ZKProofResponse { proof: prover.verify().is_ok() }
+
+        ZKProofResponse {
+            proof: prover.verify().is_ok(),
+        }
     }
 }

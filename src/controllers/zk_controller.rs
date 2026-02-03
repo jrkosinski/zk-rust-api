@@ -1,6 +1,6 @@
+use crate::services::zk_service::{ZKProofResponse, ZKService};
 use rust_api::prelude::*;
 use std::sync::Arc;
-use crate::services::zk_service::{ZKService, ZKProofResponse};
 
 #[derive(Deserialize)]
 pub struct ZKQuery {
