@@ -1,0 +1,13 @@
+# Clippy configuration for zk-rust-api
+
+# Disallow unsafe code
+disallowed-methods = []
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30
+
+# Documentation
+missing-docs-in-crate-items = false
+
+# Allow some clippy lints for crypto code
+# (cryptographic code often needs specific patterns)

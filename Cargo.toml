@@ -1,6 +1,51 @@
 [package]
 name = "zk-rust-api"
 version = "0.1.0"
-edition = "2024"
+authors = ["John R. Kosinski <john.kosinski@gmail.com>"]
+edition = "2021"
+rust-version = "1.70"
+description = "A zero-knowledge proof API built with Halo2"
+documentation = "https://docs.rs/zk-rust-api"
+readme = "README.md"
+homepage = "https://github.com/yourusername/zk-rust-api"
+repository = "https://github.com/yourusername/zk-rust-api"
+license = "MIT"
+keywords = ["rust-api", "zero-knowledge", "zk", "halo2", "cryptography", "api"]
+categories = ["cryptography", "api-bindings"]
+exclude = [
+    ".github/",
+    "target/",
+    "examples/",
+]
 
 [dependencies]
+halo2_proofs = "0.3.2"
+rand = "0.9.2"
+rust-api = "0.0.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[[bench]]
+name = "zk_benchmarks"
+harness = false

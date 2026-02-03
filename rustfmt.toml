@@ -1,0 +1,69 @@
+# rustfmt configuration for zk-rust-api
+
+# Maximum line width
+max_width = 100
+
+# Use tab or space for indentation
+hard_tabs = false
+tab_spaces = 4
+
+# Edition
+edition = "2021"
+
+# Newline style
+newline_style = "Unix"
+
+# Format strings
+format_strings = true
+
+# Format code in doc comments
+format_code_in_doc_comments = true
+
+# Merge derives into one line if possible
+merge_derives = true
+
+# Reorder imports
+reorder_imports = true
+reorder_modules = true
+
+# Use field initialization shorthand
+use_field_init_shorthand = true
+
+# Use try shorthand
+use_try_shorthand = true
+
+# Formatting of empty blocks
+empty_item_single_line = true
+
+# Struct literal formatting
+struct_lit_single_line = false
+
+# Control flow formatting
+control_brace_style = "AlwaysSameLine"
+
+# Function calls
+fn_call_width = 80
+
+# Where clause
+where_single_line = false
+
+# Match arms
+match_arm_blocks = true
+match_block_trailing_comma = true
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+
+# Trailing comma
+trailing_comma = "Vertical"
+
+# Comment width
+comment_width = 100
+wrap_comments = true
+
+# Normalize comments
+normalize_comments = true
+
+# Normalize doc attributes
+normalize_doc_attributes = true

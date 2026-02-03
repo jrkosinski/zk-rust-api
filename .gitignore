@@ -1,1 +1,33 @@
+# Rust
 /target
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test coverage
+*.profraw
+*.profdata
+tarpaulin-report.html
+cobertura.xml
+
+# Benchmarks
+/benches/target
+
+# Documentation
+/target/doc
+
+# Environment
+.env
+.env.local
+
+# OS
+Thumbs.db
+.directory
