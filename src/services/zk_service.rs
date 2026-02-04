@@ -1,13 +1,12 @@
+use halo2_gadgets::poseidon::{
+    primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3},
+    Hash, Pow5Chip, Pow5Config,
+};
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
     pasta::Fp,
-    plonk::{self, Advice, Circuit, Column, ConstraintSystem, Instance, Selector},
-    poly::Rotation,
-};
-use halo2_gadgets::poseidon::{
-    primitives::{ConstantLength, P128Pow5T3, Hash as PoseidonHash},
-    Hash, Pow5Chip, Pow5Config,
+    plonk::{self, Advice, Circuit, Column, ConstraintSystem, Instance},
 };
 use rust_api::prelude::*;
 
@@ -28,7 +27,6 @@ struct MerkleCircuit {
 struct MerkleConfig {
     advice: Column<Advice>,
     pub instance: Column<Instance>,
-    pub s: Selector,
     poseidon: Pow5Config<Fp, 3, 2>,
 }
 
@@ -47,9 +45,8 @@ impl Circuit<Fp> for MerkleCircuit {
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
         let advice = meta.advice_column();
         let instance = meta.instance_column();
-        let s = meta.selector();
 
-        // Allow equality constraints / copying between cells.
+        //allow equality constraints / copying between cells
         meta.enable_equality(advice);
         meta.enable_equality(instance);
 
@@ -87,44 +84,17 @@ impl Circuit<Fp> for MerkleCircuit {
         meta.enable_constant(rc_b[1]);
         meta.enable_constant(rc_b[2]);
 
-        let poseidon = Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(
-            meta,
-            state,
-            partial_sbox,
-            rc_a,
-            rc_b,
-        );
+        let poseidon =
+            Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(meta, state, partial_sbox, rc_a, rc_b);
 
-        // Gate enforces:
-        // h1 = leaf + path1
-        // h2 = h1 + path2
-        //
-        // Layout (single advice column, 5 rows starting at offset):
-        // row 0: leaf
-        // row 1: path1
-        // row 2: h1
-        // row 3: path2
-        // row 4: h2
-        meta.create_gate("merkle add constraints", |meta| {
-            let s = meta.query_selector(s);
-
-            let leaf = meta.query_advice(advice, Rotation::cur());
-            let path1 = meta.query_advice(advice, Rotation::next());
-            let h1 = meta.query_advice(advice, Rotation(2));
-            let path2 = meta.query_advice(advice, Rotation(3));
-            let h2 = meta.query_advice(advice, Rotation(4));
-
-            vec![
-                s.clone() * (h1.clone() - leaf - path1),
-                s * (h2 - h1 - path2),
-            ]
-        });
+        //note: poseidon chip provides its own constraints for the hash computation
+        //we don't need additional gates for the merkle tree logic
+        //the constraints are: h1 = poseidon(leaf, path1) and h2 = poseidon(h1, path2)
 
         MerkleConfig {
             advice,
             instance,
-            s,
-            poseidon
+            poseidon,
         }
     }
 
@@ -142,30 +112,22 @@ impl Circuit<Fp> for MerkleCircuit {
         //assign leaf and path_1 as cells first
         let leaf_cell = layouter.assign_region(
             || "assign leaf",
-            |mut region| {
-                region.assign_advice(|| "leaf", config.advice, 0, || self.leaf)
-            },
+            |mut region| region.assign_advice(|| "leaf", config.advice, 0, || self.leaf),
         )?;
 
         let path_1_cell = layouter.assign_region(
             || "assign path_1",
-            |mut region| {
-                region.assign_advice(|| "path_1", config.advice, 0, || self.path_1)
-            },
+            |mut region| region.assign_advice(|| "path_1", config.advice, 0, || self.path_1),
         )?;
 
         //hash leaf + path_1 to get h1
-        let h1_cell = hasher.hash(
-            layouter.namespace(|| "poseidon h1"),
-            [leaf_cell, path_1_cell],
-        )?;
+        let h1_cell =
+            hasher.hash(layouter.namespace(|| "poseidon h1"), [leaf_cell, path_1_cell])?;
 
         //assign path_2 as a cell
         let path_2_cell = layouter.assign_region(
             || "assign path_2",
-            |mut region| {
-                region.assign_advice(|| "path_2", config.advice, 0, || self.path_2)
-            },
+            |mut region| region.assign_advice(|| "path_2", config.advice, 0, || self.path_2),
         )?;
 
         //hash h1 + path_2 to get h2
@@ -174,32 +136,11 @@ impl Circuit<Fp> for MerkleCircuit {
             layouter.namespace(|| "init hasher2"),
         )?;
 
-        let h2_cell_result = hasher2.hash(
-            layouter.namespace(|| "poseidon h2"),
-            [h1_cell.clone(), path_2_cell],
-        )?;
-
-
-        let h2_final = layouter.assign_region(
-            || "merkle chain (depth=2)",
-            |mut region| {
-                let offset = 0;
-
-                // Enable the gate at the start row of this 5-row block
-                config.s.enable(&mut region, offset)?;
-
-                region.assign_advice(|| "leaf", config.advice, offset, || self.leaf)?;
-                region.assign_advice(|| "path1", config.advice, offset + 1, || self.path_1)?;
-                region.assign_advice(|| "h1", config.advice, offset + 2, || h1_cell.value().copied())?;
-                region.assign_advice(|| "path2", config.advice, offset + 3, || self.path_2)?;
-                let h2 = region.assign_advice(|| "h2", config.advice, offset + 4, || h2_cell_result.value().copied())?;
-
-                Ok(h2)
-            },
-        )?;
+        let h2_cell =
+            hasher2.hash(layouter.namespace(|| "poseidon h2"), [h1_cell.clone(), path_2_cell])?;
 
         //constrain h2 == public root (instance[0])
-        layouter.constrain_instance(h2_final.cell(), config.instance, 0)?;
+        layouter.constrain_instance(h2_cell.cell(), config.instance, 0)?;
 
         Ok(())
     }
@@ -219,13 +160,13 @@ impl ZKService {
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
 
-        //compute the expected root using poseidon hash
-        //h1 = hash(leaf, s1)
-        //root = hash(h1, s2)
+        //compute the expected root for the correct leaf value (10)
+        //this is the fixed merkle root we're checking against
+        let correct_leaf = Fp::from(10u64);
         let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
-            .hash([leaf, s1]);
-        let root = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
-            .hash([h1, s2]);
+            .hash([correct_leaf, s1]);
+        let expected_root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
@@ -234,7 +175,8 @@ impl ZKService {
         };
 
         //k=8 gives 2^8=256 rows which is enough for poseidon operations
-        let prover = MockProver::run(8, &circuit, vec![vec![root]]).unwrap();
+        //the circuit proves that the provided leaf hashes to expected_root
+        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
 
         ZKProofResponse {
             proof: prover.verify().is_ok(),
