@@ -29,6 +29,7 @@ struct MerkleConfig {
     advice: Column<Advice>,
     pub instance: Column<Instance>,
     pub s: Selector,
+    poseidon: Pow5Config<Fp, 3, 2>,
 }
 
 impl Circuit<Fp> for MerkleCircuit {
@@ -52,13 +53,32 @@ impl Circuit<Fp> for MerkleCircuit {
         meta.enable_equality(advice);
         meta.enable_equality(instance);
 
-        //poseidon config
-        let state = [meta.advice_column(), meta.advice_column(), meta.advice_column()];
+        //poseidon config - needs state columns for hashing
+        let state = [
+            meta.advice_column(),
+            meta.advice_column(),
+            meta.advice_column(),
+        ];
         let partial_sbox = meta.advice_column();
-        let rc_a = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
-        let rc_b = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
 
-        let _poseidon = Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(
+        //enable equality on state columns so we can copy values between regions
+        for col in &state {
+            meta.enable_equality(*col);
+        }
+
+        //round constants need more columns
+        let rc_a = [
+            meta.fixed_column(),
+            meta.fixed_column(),
+            meta.fixed_column(),
+        ];
+        let rc_b = [
+            meta.fixed_column(),
+            meta.fixed_column(),
+            meta.fixed_column(),
+        ];
+
+        let poseidon = Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(
             meta,
             state,
             partial_sbox,
@@ -95,6 +115,7 @@ impl Circuit<Fp> for MerkleCircuit {
             advice,
             instance,
             s,
+            poseidon
         }
     }
 
@@ -103,11 +124,54 @@ impl Circuit<Fp> for MerkleCircuit {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> std::result::Result<(), plonk::Error> {
-        // Compute witness values symbolically (no unwraps)
-        let h1_val = self.leaf + self.path_1;
-        let h2_val = h1_val + self.path_2;
+        // Initialize the hasher using the Hash trait
+        let hasher = Hash::<_, _, P128Pow5T3, ConstantLength<2>, 3, 2>::init(
+            Pow5Chip::<Fp, 3, 2>::construct(config.poseidon.clone()),
+            layouter.namespace(|| "init hasher"),
+        )?;
 
-        let h2_cell = layouter.assign_region(
+        // Assign leaf and path_1 as cells first
+        let leaf_cell = layouter.assign_region(
+            || "assign leaf",
+            |mut region| {
+                region.assign_advice(|| "leaf", config.advice, 0, || self.leaf)
+            },
+        )?;
+
+        let path_1_cell = layouter.assign_region(
+            || "assign path_1",
+            |mut region| {
+                region.assign_advice(|| "path_1", config.advice, 0, || self.path_1)
+            },
+        )?;
+
+        // Hash leaf + path_1 to get h1
+        let h1_cell = hasher.hash(
+            layouter.namespace(|| "poseidon h1"),
+            [leaf_cell, path_1_cell],
+        )?;
+
+        // Assign path_2 as a cell
+        let path_2_cell = layouter.assign_region(
+            || "assign path_2",
+            |mut region| {
+                region.assign_advice(|| "path_2", config.advice, 0, || self.path_2)
+            },
+        )?;
+
+        // Hash h1 + path_2 to get h2
+        let hasher2 = Hash::<_, _, P128Pow5T3, ConstantLength<2>, 3, 2>::init(
+            Pow5Chip::<Fp, 3, 2>::construct(config.poseidon.clone()),
+            layouter.namespace(|| "init hasher2"),
+        )?;
+
+        let h2_cell_result = hasher2.hash(
+            layouter.namespace(|| "poseidon h2"),
+            [h1_cell.clone(), path_2_cell],
+        )?;
+
+
+        let h2_final = layouter.assign_region(
             || "merkle chain (depth=2)",
             |mut region| {
                 let offset = 0;
@@ -117,16 +181,16 @@ impl Circuit<Fp> for MerkleCircuit {
 
                 region.assign_advice(|| "leaf", config.advice, offset, || self.leaf)?;
                 region.assign_advice(|| "path1", config.advice, offset + 1, || self.path_1)?;
-                region.assign_advice(|| "h1", config.advice, offset + 2, || h1_val)?;
+                region.assign_advice(|| "h1", config.advice, offset + 2, || h1_cell.value().copied())?;
                 region.assign_advice(|| "path2", config.advice, offset + 3, || self.path_2)?;
-                let h2 = region.assign_advice(|| "h2", config.advice, offset + 4, || h2_val)?;
+                let h2 = region.assign_advice(|| "h2", config.advice, offset + 4, || h2_cell_result.value().copied())?;
 
                 Ok(h2)
             },
         )?;
 
         // Constrain h2 == public root (instance[0])
-        layouter.constrain_instance(h2_cell.cell(), config.instance, 0)?;
+        layouter.constrain_instance(h2_final.cell(), config.instance, 0)?;
 
         Ok(())
     }
