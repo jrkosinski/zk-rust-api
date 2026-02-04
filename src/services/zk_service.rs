@@ -5,6 +5,10 @@ use halo2_proofs::{
     plonk::{self, Advice, Circuit, Column, ConstraintSystem, Instance, Selector},
     poly::Rotation,
 };
+use halo2_gadgets::poseidon::{
+    primitives::{ConstantLength, P128Pow5T3},
+    Hash, Pow5Chip, Pow5Config,
+};
 use rust_api::prelude::*;
 
 /// Response type for the health check endpoint.
@@ -47,6 +51,20 @@ impl Circuit<Fp> for MerkleCircuit {
         // Allow equality constraints / copying between cells.
         meta.enable_equality(advice);
         meta.enable_equality(instance);
+
+        //poseidon config
+        let state = [meta.advice_column(), meta.advice_column(), meta.advice_column()];
+        let partial_sbox = meta.advice_column();
+        let rc_a = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
+        let rc_b = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
+
+        let _poseidon = Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(
+            meta,
+            state,
+            partial_sbox,
+            rc_a,
+            rc_b,
+        );
 
         // Gate enforces:
         // h1 = leaf + path1
@@ -140,5 +158,42 @@ impl ZKService {
         ZKProofResponse {
             proof: prover.verify().is_ok(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zk_proof_with_correct_value() {
+        let service = ZKService::new();
+        let response = service.zk_proof(10);
+
+        assert!(response.proof, "Expected proof to be true for correct leaf value of 10");
+    }
+
+    #[test]
+    fn test_zk_proof_with_incorrect_value() {
+        let service = ZKService::new();
+        let response = service.zk_proof(15);
+
+        assert!(!response.proof, "Expected proof to be false for incorrect leaf value of 15");
+    }
+
+    #[test]
+    fn test_zk_proof_with_zero() {
+        let service = ZKService::new();
+        let response = service.zk_proof(0);
+
+        assert!(!response.proof, "Expected proof to be false for incorrect leaf value of 0");
+    }
+
+    #[test]
+    fn test_zk_proof_with_large_incorrect_value() {
+        let service = ZKService::new();
+        let response = service.zk_proof(1000);
+
+        assert!(!response.proof, "Expected proof to be false for incorrect leaf value of 1000");
     }
 }
