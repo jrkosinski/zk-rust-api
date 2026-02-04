@@ -6,7 +6,7 @@ use halo2_proofs::{
     poly::Rotation,
 };
 use halo2_gadgets::poseidon::{
-    primitives::{ConstantLength, P128Pow5T3},
+    primitives::{ConstantLength, P128Pow5T3, Hash as PoseidonHash},
     Hash, Pow5Chip, Pow5Config,
 };
 use rust_api::prelude::*;
@@ -66,7 +66,8 @@ impl Circuit<Fp> for MerkleCircuit {
             meta.enable_equality(*col);
         }
 
-        //round constants need more columns
+        //round constants need many fixed columns for P128Pow5T3
+        //allocate enough columns to store all round constants
         let rc_a = [
             meta.fixed_column(),
             meta.fixed_column(),
@@ -77,6 +78,14 @@ impl Circuit<Fp> for MerkleCircuit {
             meta.fixed_column(),
             meta.fixed_column(),
         ];
+
+        //mark these columns as constant columns
+        meta.enable_constant(rc_a[0]);
+        meta.enable_constant(rc_a[1]);
+        meta.enable_constant(rc_a[2]);
+        meta.enable_constant(rc_b[0]);
+        meta.enable_constant(rc_b[1]);
+        meta.enable_constant(rc_b[2]);
 
         let poseidon = Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(
             meta,
@@ -124,13 +133,13 @@ impl Circuit<Fp> for MerkleCircuit {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> std::result::Result<(), plonk::Error> {
-        // Initialize the hasher using the Hash trait
+        //initialize the hasher using the Hash trait
         let hasher = Hash::<_, _, P128Pow5T3, ConstantLength<2>, 3, 2>::init(
             Pow5Chip::<Fp, 3, 2>::construct(config.poseidon.clone()),
             layouter.namespace(|| "init hasher"),
         )?;
 
-        // Assign leaf and path_1 as cells first
+        //assign leaf and path_1 as cells first
         let leaf_cell = layouter.assign_region(
             || "assign leaf",
             |mut region| {
@@ -145,13 +154,13 @@ impl Circuit<Fp> for MerkleCircuit {
             },
         )?;
 
-        // Hash leaf + path_1 to get h1
+        //hash leaf + path_1 to get h1
         let h1_cell = hasher.hash(
             layouter.namespace(|| "poseidon h1"),
             [leaf_cell, path_1_cell],
         )?;
 
-        // Assign path_2 as a cell
+        //assign path_2 as a cell
         let path_2_cell = layouter.assign_region(
             || "assign path_2",
             |mut region| {
@@ -159,7 +168,7 @@ impl Circuit<Fp> for MerkleCircuit {
             },
         )?;
 
-        // Hash h1 + path_2 to get h2
+        //hash h1 + path_2 to get h2
         let hasher2 = Hash::<_, _, P128Pow5T3, ConstantLength<2>, 3, 2>::init(
             Pow5Chip::<Fp, 3, 2>::construct(config.poseidon.clone()),
             layouter.namespace(|| "init hasher2"),
@@ -189,7 +198,7 @@ impl Circuit<Fp> for MerkleCircuit {
             },
         )?;
 
-        // Constrain h2 == public root (instance[0])
+        //constrain h2 == public root (instance[0])
         layouter.constrain_instance(h2_final.cell(), config.instance, 0)?;
 
         Ok(())
@@ -209,7 +218,14 @@ impl ZKService {
         let leaf = Fp::from(leaf_val);
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
-        let root = Fp::from(10u64) + s1 + s2;
+
+        //compute the expected root using poseidon hash
+        //h1 = hash(leaf, s1)
+        //root = hash(h1, s2)
+        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([leaf, s1]);
+        let root = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([h1, s2]);
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
@@ -217,7 +233,8 @@ impl ZKService {
             path_2: Value::known(s2),
         };
 
-        let prover = MockProver::run(4, &circuit, vec![vec![root]]).unwrap();
+        //k=8 gives 2^8=256 rows which is enough for poseidon operations
+        let prover = MockProver::run(8, &circuit, vec![vec![root]]).unwrap();
 
         ZKProofResponse {
             proof: prover.verify().is_ok(),
