@@ -1,181 +1,16 @@
 use halo2_gadgets::poseidon::{
     primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3},
-    Hash, Pow5Chip, Pow5Config,
 };
 use halo2_proofs::dev::MockProver;
-use halo2_proofs::{
-    circuit::{Layouter, SimpleFloorPlanner, Value},
-    pasta::Fp,
-    plonk::{self, Advice, Circuit, Column, ConstraintSystem, Instance},
-};
+use halo2_proofs::{circuit::Value, pasta::Fp};
 use rust_api::prelude::*;
 
-const DEPTH: usize = 2;
+use super::merkle_circuit::MerkleCircuit;
 
 /// Response type for the health check endpoint.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZKProofResponse {
     pub proof: bool,
-}
-
-#[derive(Clone, Debug)]
-struct MerkleCircuit {
-    /// Private leaf value
-    leaf: Value<Fp>,
-
-    /// Merkle path siblings (one per level)
-    /// For a tree of arbitrary depth, this array stores one sibling per level.
-    /// The circuit hashes the current value with each sibling in sequence,
-    /// moving up the tree until reaching the root.
-    siblings: [Value<Fp>; DEPTH],
-
-    /// Direction bits (0 = cur is left, 1 = cur is right)
-    /// NOTE: Currently unused in the simplified implementation.
-    /// The current version always hashes as hash(cur, sibling), so the caller
-    /// must arrange siblings in the correct order for the merkle path.
-    ///
-    /// To implement conditional swapping based on direction bits:
-    /// 1. Add custom constraints or use a mux gadget to conditionally swap inputs
-    /// 2. Ensure direction bits are constrained to be 0 or 1
-    /// 3. Use: left = cur*(1-dir) + sibling*dir, right = cur*dir + sibling*(1-dir)
-    #[allow(dead_code)]
-    dirs: [Value<Fp>; DEPTH],
-}
-
-#[derive(Clone, Debug)]
-struct MerkleConfig {
-    advice: Column<Advice>,
-    pub instance: Column<Instance>,
-    poseidon: Pow5Config<Fp, 3, 2>,
-}
-
-impl Circuit<Fp> for MerkleCircuit {
-    type Config = MerkleConfig;
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self {
-            leaf: Value::unknown(),
-            siblings: [Value::unknown(); DEPTH],
-            dirs: [Value::unknown(); DEPTH],
-        }
-    }
-
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        let advice = meta.advice_column();
-        let instance = meta.instance_column();
-
-        //allow equality constraints / copying between cells
-        meta.enable_equality(advice);
-        meta.enable_equality(instance);
-
-        //poseidon config - needs state columns for hashing
-        let state = [
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-        ];
-        let partial_sbox = meta.advice_column();
-        meta.enable_equality(partial_sbox);
-
-        //enable equality on state columns so we can copy values between regions
-        for col in &state {
-            meta.enable_equality(*col);
-        }
-
-        //round constants need many fixed columns for P128Pow5T3
-        //allocate enough columns to store all round constants
-        let rc_a = [
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-        ];
-        let rc_b = [
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-        ];
-
-        //mark these columns as constant columns
-        meta.enable_constant(rc_a[0]);
-        meta.enable_constant(rc_a[1]);
-        meta.enable_constant(rc_a[2]);
-        meta.enable_constant(rc_b[0]);
-        meta.enable_constant(rc_b[1]);
-        meta.enable_constant(rc_b[2]);
-
-        let poseidon =
-            Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(meta, state, partial_sbox, rc_a, rc_b);
-
-        //note: poseidon chip provides its own constraints for the hash computation
-        //the constraints are: h1 = poseidon(leaf, path1) and h2 = poseidon(h1, path2)
-
-        MerkleConfig {
-            advice,
-            instance,
-            poseidon,
-        }
-    }
-
-    fn synthesize(
-        &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<Fp>,
-    ) -> std::result::Result<(), plonk::Error> {
-        //assign the leaf value as the starting point
-        let mut cur_cell = layouter.assign_region(
-            || "assign leaf",
-            |mut region| region.assign_advice(|| "leaf", config.advice, 0, || self.leaf),
-        )?;
-
-        //iterate through each level of the tree
-        for i in 0..DEPTH {
-            //assign the sibling for this level
-            let sibling_cell = layouter.assign_region(
-                || format!("assign sibling {}", i),
-                |mut region| {
-                    region.assign_advice(|| format!("sibling {}", i), config.advice, 0, || self.siblings[i])
-                },
-            )?;
-
-            //determine the order based on direction bit
-            //note: in a production circuit, you'd add constraints to enforce the conditional swap
-            //for now, we just select based on the witness value
-            //if dir = 0: hash(cur, sibling)
-            //if dir = 1: hash(sibling, cur)
-
-            //since we can't conditionally swap cells without custom constraints,
-            //just hash in the same order and adjust the sibling values at the input level to match
-
-            //initialize hasher for this level
-            let hasher = Hash::<_, _, P128Pow5T3, ConstantLength<2>, 3, 2>::init(
-                Pow5Chip::<Fp, 3, 2>::construct(config.poseidon.clone()),
-                layouter.namespace(|| format!("init hasher {}", i)),
-            )?;
-
-            //for this simplified version, we always hash(cur, sibling)
-            //the caller must provide siblings in the correct order
-            cur_cell = hasher.hash(
-                layouter.namespace(|| format!("hash level {}", i)),
-                [cur_cell.clone(), sibling_cell],
-            )?;
-        }
-
-        //constrain the final hash to equal the public root (instance[0])
-        layouter.constrain_instance(cur_cell.cell(), config.instance, 0)?;
-
-        Ok(())
-    }
-
-}
-
-fn select(a: Value<Fp>, b: Value<Fp>, sel: Value<Fp>) -> (Value<Fp>, Value<Fp>)
-{
-    let one = Value::known(Fp::one());
-    (
-        a * (one - sel) + b * sel,
-        a * sel + b * (one - sel),
-    )
 }
 
 pub struct ZKService {}
@@ -203,7 +38,7 @@ impl ZKService {
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
             siblings: [Value::known(s1), Value::known(s2)],
-            dirs: [Value::known(Fp::zero()), Value::known(Fp::zero())],
+            directions: [Value::known(Fp::zero()), Value::known(Fp::zero())],
         };
 
         //k=8 gives 2^8=256 rows which is enough for poseidon operations
@@ -225,7 +60,10 @@ mod tests {
         let service = ZKService::new();
         let response = service.zk_proof(10);
 
-        assert!(response.proof, "Expected proof to be true for correct leaf value of 10");
+        assert!(
+            response.proof,
+            "Expected proof to be true for correct leaf value of 10"
+        );
     }
 
     #[test]
@@ -233,7 +71,10 @@ mod tests {
         let service = ZKService::new();
         let response = service.zk_proof(15);
 
-        assert!(!response.proof, "Expected proof to be false for incorrect leaf value of 15");
+        assert!(
+            !response.proof,
+            "Expected proof to be false for incorrect leaf value of 15"
+        );
     }
 
     #[test]
@@ -241,7 +82,10 @@ mod tests {
         let service = ZKService::new();
         let response = service.zk_proof(0);
 
-        assert!(!response.proof, "Expected proof to be false for incorrect leaf value of 0");
+        assert!(
+            !response.proof,
+            "Expected proof to be false for incorrect leaf value of 0"
+        );
     }
 
     #[test]
@@ -249,6 +93,140 @@ mod tests {
         let service = ZKService::new();
         let response = service.zk_proof(1000);
 
-        assert!(!response.proof, "Expected proof to be false for incorrect leaf value of 1000");
+        assert!(
+            !response.proof,
+            "Expected proof to be false for incorrect leaf value of 1000"
+        );
+    }
+
+    #[test]
+    fn test_direction_bits_all_zeros() {
+        //test with direction bits [0, 0] - leaf on left at both levels
+        let leaf = Fp::from(10u64);
+        let s1 = Fp::from(20);
+        let s2 = Fp::from(30);
+
+        //compute expected root: hash(hash(leaf, s1), s2)
+        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([leaf, s1]);
+        let expected_root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+
+        let circuit = MerkleCircuit {
+            leaf: Value::known(leaf),
+            siblings: [Value::known(s1), Value::known(s2)],
+            directions: [Value::known(Fp::zero()), Value::known(Fp::zero())],
+        };
+
+        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
+        assert!(
+            prover.verify().is_ok(),
+            "Direction bits [0, 0] should verify"
+        );
+    }
+
+    #[test]
+    fn test_direction_bits_all_ones() {
+        //test with direction bits [1, 1] - leaf on right at both levels
+        let leaf = Fp::from(10u64);
+        let s1 = Fp::from(20);
+        let s2 = Fp::from(30);
+
+        //compute expected root: hash(s2, hash(s1, leaf))
+        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([s1, leaf]);
+        let expected_root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([s2, h1]);
+
+        let circuit = MerkleCircuit {
+            leaf: Value::known(leaf),
+            siblings: [Value::known(s1), Value::known(s2)],
+            directions: [Value::known(Fp::one()), Value::known(Fp::one())],
+        };
+
+        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
+        assert!(
+            prover.verify().is_ok(),
+            "Direction bits [1, 1] should verify"
+        );
+    }
+
+    #[test]
+    fn test_direction_bits_mixed() {
+        //test with direction bits [0, 1] - leaf left at level 0, result right at level 1
+        let leaf = Fp::from(10u64);
+        let s1 = Fp::from(20);
+        let s2 = Fp::from(30);
+
+        //compute expected root: hash(s2, hash(leaf, s1))
+        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([leaf, s1]);
+        let expected_root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([s2, h1]);
+
+        let circuit = MerkleCircuit {
+            leaf: Value::known(leaf),
+            siblings: [Value::known(s1), Value::known(s2)],
+            directions: [Value::known(Fp::zero()), Value::known(Fp::one())],
+        };
+
+        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
+        assert!(
+            prover.verify().is_ok(),
+            "Direction bits [0, 1] should verify"
+        );
+    }
+
+    #[test]
+    fn test_direction_bits_wrong_direction() {
+        //test that wrong direction bits cause verification to fail
+        let leaf = Fp::from(10u64);
+        let s1 = Fp::from(20);
+        let s2 = Fp::from(30);
+
+        //compute root for [0, 0]: hash(hash(leaf, s1), s2)
+        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([leaf, s1]);
+        let expected_root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+
+        //but provide direction bits [1, 0] which would compute: hash(hash(s1, leaf), s2)
+        let circuit = MerkleCircuit {
+            leaf: Value::known(leaf),
+            siblings: [Value::known(s1), Value::known(s2)],
+            directions: [Value::known(Fp::one()), Value::known(Fp::zero())],
+        };
+
+        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
+        assert!(
+            prover.verify().is_err(),
+            "Wrong direction bits should fail verification"
+        );
+    }
+
+    #[test]
+    fn test_invalid_direction_bit() {
+        //test that non-binary direction bits cause verification to fail
+        let leaf = Fp::from(10u64);
+        let s1 = Fp::from(20);
+        let s2 = Fp::from(30);
+
+        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([leaf, s1]);
+        let expected_root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+
+        //use an invalid direction bit value (should be 0 or 1, but we use 2)
+        let circuit = MerkleCircuit {
+            leaf: Value::known(leaf),
+            siblings: [Value::known(s1), Value::known(s2)],
+            directions: [Value::known(Fp::from(2)), Value::known(Fp::zero())],
+        };
+
+        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
+        assert!(
+            prover.verify().is_err(),
+            "Non-binary direction bit should fail verification"
+        );
     }
 }
