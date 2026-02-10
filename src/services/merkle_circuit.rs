@@ -242,9 +242,9 @@ impl Circuit<Fp> for MerkleCircuit {
                     )?;
 
                     //the custom gate will automatically check:
-                    //  1. dir is 0 or 1
-                    //  2. left is computed correctly
-                    //  3. right is computed correctly
+                    // - dir is 0 or 1
+                    // - left is computed correctly
+                    // - right is computed correctly
 
                     Ok((left, right))
                 },
