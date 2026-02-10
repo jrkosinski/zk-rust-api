@@ -10,6 +10,8 @@ use halo2_proofs::{
 };
 use rust_api::prelude::*;
 
+const DEPTH: usize = 2;
+
 /// Response type for the health check endpoint.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZKProofResponse {
@@ -18,9 +20,14 @@ pub struct ZKProofResponse {
 
 #[derive(Clone, Debug)]
 struct MerkleCircuit {
+    /// Private leaf value
     leaf: Value<Fp>,
-    path_1: Value<Fp>,
-    path_2: Value<Fp>,
+
+    /// Merkle path siblings (one per level)
+    siblings: [Value<Fp>; DEPTH],
+
+    /// Direction bits (0 = cur is left, 1 = cur is right)
+    dirs: [Value<Fp>; DEPTH],
 }
 
 #[derive(Clone, Debug)]
@@ -37,8 +44,8 @@ impl Circuit<Fp> for MerkleCircuit {
     fn without_witnesses(&self) -> Self {
         Self {
             leaf: Value::unknown(),
-            path_1: Value::unknown(),
-            path_2: Value::unknown(),
+            siblings: [Value::unknown(); DEPTH],
+            dirs: [Value::unknown(); DEPTH],
         }
     }
 
@@ -57,6 +64,7 @@ impl Circuit<Fp> for MerkleCircuit {
             meta.advice_column(),
         ];
         let partial_sbox = meta.advice_column();
+        meta.enable_equality(partial_sbox);
 
         //enable equality on state columns so we can copy values between regions
         for col in &state {
@@ -88,7 +96,6 @@ impl Circuit<Fp> for MerkleCircuit {
             Pow5Chip::<Fp, 3, 2>::configure::<P128Pow5T3>(meta, state, partial_sbox, rc_a, rc_b);
 
         //note: poseidon chip provides its own constraints for the hash computation
-        //we don't need additional gates for the merkle tree logic
         //the constraints are: h1 = poseidon(leaf, path1) and h2 = poseidon(h1, path2)
 
         MerkleConfig {
@@ -109,6 +116,7 @@ impl Circuit<Fp> for MerkleCircuit {
             layouter.namespace(|| "init hasher"),
         )?;
 
+        /*
         //assign leaf and path_1 as cells first
         let leaf_cell = layouter.assign_region(
             || "assign leaf",
@@ -141,9 +149,25 @@ impl Circuit<Fp> for MerkleCircuit {
 
         //constrain h2 == public root (instance[0])
         layouter.constrain_instance(h2_cell.cell(), config.instance, 0)?;
+        
+        */
+        for i in 0..DEPTH {
+            let dir = self.dirs[i];
+            let sib = self.siblings[i];
+        }
 
         Ok(())
     }
+
+}
+
+fn select(a: Value<Fp>, b: Value<Fp>, sel: Value<Fp>) -> (Value<Fp>, Value<Fp>)
+{
+    let one = Value::known(Fp::one());
+    (
+        a * (one - sel) + b * sel,
+        a * sel + b * (one - sel),
+    )
 }
 
 pub struct ZKService {}
@@ -170,8 +194,8 @@ impl ZKService {
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            path_1: Value::known(s1),
-            path_2: Value::known(s2),
+            siblings: [Value::known(s1), Value::known(s2)],
+            dirs: [Value::known(Fp::zero()), Value::known(Fp::zero())],
         };
 
         //k=8 gives 2^8=256 rows which is enough for poseidon operations
