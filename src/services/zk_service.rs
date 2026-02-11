@@ -1,11 +1,9 @@
-use halo2_gadgets::poseidon::{
-    primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3},
-};
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::{circuit::Value, pasta::Fp};
 use rust_api::prelude::*;
 
 use super::merkle_circuit::MerkleCircuit;
+use super::merkle_tree::MerkleTree;
 
 /// Response type for the health check endpoint.
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,22 +21,47 @@ impl ZKService {
     }
 
     pub fn zk_proof(&self, leaf_val: u64) -> ZKProofResponse {
-        let leaf = Fp::from(leaf_val);
-        let s1 = Fp::from(20);
-        let s2 = Fp::from(30);
+        //build a Merkle tree with example leaves
+        //in a real application, this tree would be constructed from actual data
+        //and potentially stored/cached rather than rebuilt each time
+        let tree = MerkleTree::new(vec![10u64, 20, 30, 40]);
 
-        //compute the expected root for the correct leaf value (10)
-        //this is the fixed merkle root we're checking against
-        let correct_leaf = Fp::from(10u64);
-        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
-            .hash([correct_leaf, s1]);
-        let expected_root =
-            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+        //try to find the leaf in the tree
+        let leaf_index = tree
+            .leaves()
+            .iter()
+            .position(|&l| l == Fp::from(leaf_val));
+
+        //if the leaf is not in the tree, the proof will fail
+        let (leaf, siblings, directions, expected_root) = if let Some(idx) = leaf_index {
+            //generate proof for the found leaf
+            let proof = tree.generate_proof(idx).unwrap();
+
+            //convert siblings and directions to arrays for the circuit
+            let siblings_array: [Fp; 2] = [proof.siblings[0], proof.siblings[1]];
+            let directions_array: [Fp; 2] = [proof.directions[0], proof.directions[1]];
+
+            (
+                proof.leaf,
+                siblings_array,
+                directions_array,
+                proof.root,
+            )
+        } else {
+            //leaf not in tree - use dummy values that will fail verification
+            let leaf = Fp::from(leaf_val);
+            (
+                leaf,
+                [Fp::zero(), Fp::zero()],
+                [Fp::zero(), Fp::zero()],
+                tree.root(),
+            )
+        };
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(s1), Value::known(s2)],
-            directions: [Value::known(Fp::zero()), Value::known(Fp::zero())],
+            siblings: [Value::known(siblings[0]), Value::known(siblings[1])],
+            directions: [Value::known(directions[0]), Value::known(directions[1])],
         };
 
         //k=8 gives 2^8=256 rows which is enough for poseidon operations
@@ -54,6 +77,9 @@ impl ZKService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use halo2_gadgets::poseidon::{
+        primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3},
+    };
 
     #[test]
     fn test_zk_proof_with_correct_value() {
