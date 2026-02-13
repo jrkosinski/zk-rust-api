@@ -9,7 +9,7 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-pub const DEPTH: usize = 2;
+pub const DEPTH: usize = 3;
 
 #[derive(Clone, Debug)]
 pub struct MerkleCircuit {

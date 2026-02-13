@@ -2,15 +2,18 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::{circuit::Value, pasta::Fp};
 use rust_api::prelude::*;
 
-use super::merkle_circuit::MerkleCircuit;
+use super::merkle_circuit::{MerkleCircuit, DEPTH};
 use super::merkle_tree::MerkleTree;
 
-/// Response type for the health check endpoint.
+/// Response type for zero-knowledge proof verification.
+/// Contains a boolean indicating whether the proof is valid.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ZKProofResponse {
     pub proof: bool,
 }
 
+/// Service for generating and verifying zero-knowledge proofs using Merkle trees.
+/// Stores a Merkle tree and can generate proofs that a given value exists in the tree.
 pub struct ZKService {
     tree: MerkleTree,
 }
@@ -18,14 +21,26 @@ pub struct ZKService {
 impl Injectable for ZKService {}
 
 impl ZKService {
+    /// Creates a new ZKService with a default Merkle tree.
+    /// The tree is initialized with example leaves [10, 20, 30, 40, 50, 60, 70, 80].
+    /// In a production application, the tree would be loaded from a database or configuration.
     pub fn new() -> Self {
         //initialize with example leaves
         //in a real application, you might load this from a database or configuration
-        let tree = MerkleTree::new(vec![10u64, 20, 30, 40]);
+        let tree = MerkleTree::new(vec![10u64, 20, 30, 40, 50, 60, 70, 80]);
 
         Self { tree }
     }
 
+    /// Generates a zero-knowledge proof that a given leaf value exists in the Merkle tree.
+    /// Returns a ZKProofResponse indicating whether the proof is valid.
+    ///
+    /// # Arguments
+    /// * `leaf_val` - The leaf value to prove membership for
+    ///
+    /// # Returns
+    /// A ZKProofResponse with proof=true if the leaf exists in the tree and verification succeeds,
+    /// or proof=false if the leaf doesn't exist or verification fails.
     pub fn zk_proof(&self, leaf_val: u64) -> ZKProofResponse {
         //use the stored tree instead of rebuilding each time
         //try to find the leaf in the tree
@@ -40,8 +55,13 @@ impl ZKService {
             let proof = self.tree.generate_proof(idx).unwrap();
 
             //convert siblings and directions to arrays for the circuit
-            let siblings_array: [Fp; 2] = [proof.siblings[0], proof.siblings[1]];
-            let directions_array: [Fp; 2] = [proof.directions[0], proof.directions[1]];
+            //the proof returns Vecs, but the circuit needs fixed-size arrays matching DEPTH
+            let siblings_array: [Fp; DEPTH] = proof.siblings
+                .try_into()
+                .expect("Tree depth doesn't match circuit DEPTH constant");
+            let directions_array: [Fp; DEPTH] = proof.directions
+                .try_into()
+                .expect("Tree depth doesn't match circuit DEPTH constant");
 
             (
                 proof.leaf,
@@ -54,16 +74,16 @@ impl ZKService {
             let leaf = Fp::from(leaf_val);
             (
                 leaf,
-                [Fp::zero(), Fp::zero()],
-                [Fp::zero(), Fp::zero()],
+                [Fp::zero(); DEPTH],
+                [Fp::zero(); DEPTH],
                 self.tree.root(),
             )
         };
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(siblings[0]), Value::known(siblings[1])],
-            directions: [Value::known(directions[0]), Value::known(directions[1])],
+            siblings: siblings.map(|s| Value::known(s)),
+            directions: directions.map(|d| Value::known(d)),
         };
 
         //k=8 gives 2^8=256 rows which is enough for poseidon operations
@@ -128,80 +148,115 @@ mod tests {
     }
 
     #[test]
+    fn test_zk_proof_with_last_level_value() {
+        //test with a value from the last level of the tree (depth 3, 8 leaves)
+        //the tree has leaves [10, 20, 30, 40, 50, 60, 70, 80]
+        //testing with 70, which is at index 6 (second to last leaf)
+        let service = ZKService::new();
+        let response = service.zk_proof(70);
+
+        assert!(
+            response.proof,
+            "Expected proof to be true for leaf value 70 at index 6 on last level"
+        );
+    }
+
+    #[test]
+    fn test_zk_proof_with_last_leaf() {
+        //test with the very last leaf in the tree (index 7)
+        let service = ZKService::new();
+        let response = service.zk_proof(80);
+
+        assert!(
+            response.proof,
+            "Expected proof to be true for last leaf value 80 at index 7"
+        );
+    }
+
+    #[test]
     fn test_direction_bits_all_zeros() {
-        //test with direction bits [0, 0] - leaf on left at both levels
+        //test with direction bits [0, 0, 0] - leaf on left at all three levels
         let leaf = Fp::from(10u64);
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
+        let s3 = Fp::from(40);
 
-        //compute expected root: hash(hash(leaf, s1), s2)
+        //compute expected root: hash(hash(hash(leaf, s1), s2), s3)
         let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
             .hash([leaf, s1]);
+        let h2 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([h1, s2]);
         let expected_root =
-            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h2, s3]);
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(s1), Value::known(s2)],
-            directions: [Value::known(Fp::zero()), Value::known(Fp::zero())],
+            siblings: [Value::known(s1), Value::known(s2), Value::known(s3)],
+            directions: [Value::known(Fp::zero()), Value::known(Fp::zero()), Value::known(Fp::zero())],
         };
 
         let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
         assert!(
             prover.verify().is_ok(),
-            "Direction bits [0, 0] should verify"
+            "Direction bits [0, 0, 0] should verify"
         );
     }
 
     #[test]
     fn test_direction_bits_all_ones() {
-        //test with direction bits [1, 1] - leaf on right at both levels
+        //test with direction bits [1, 1, 1] - leaf on right at all three levels
         let leaf = Fp::from(10u64);
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
+        let s3 = Fp::from(40);
 
-        //compute expected root: hash(s2, hash(s1, leaf))
+        //compute expected root: hash(s3, hash(s2, hash(s1, leaf)))
         let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
             .hash([s1, leaf]);
+        let h2 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([s2, h1]);
         let expected_root =
-            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([s2, h1]);
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([s3, h2]);
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(s1), Value::known(s2)],
-            directions: [Value::known(Fp::one()), Value::known(Fp::one())],
+            siblings: [Value::known(s1), Value::known(s2), Value::known(s3)],
+            directions: [Value::known(Fp::one()), Value::known(Fp::one()), Value::known(Fp::one())],
         };
 
         let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
         assert!(
             prover.verify().is_ok(),
-            "Direction bits [1, 1] should verify"
+            "Direction bits [1, 1, 1] should verify"
         );
     }
 
     #[test]
     fn test_direction_bits_mixed() {
-        //test with direction bits [0, 1] - leaf left at level 0, result right at level 1
+        //test with direction bits [0, 1, 0] - mixed directions across three levels
         let leaf = Fp::from(10u64);
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
+        let s3 = Fp::from(40);
 
-        //compute expected root: hash(s2, hash(leaf, s1))
+        //compute expected root: hash(hash(s2, hash(leaf, s1)), s3)
         let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
             .hash([leaf, s1]);
+        let h2 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([s2, h1]);
         let expected_root =
-            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([s2, h1]);
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h2, s3]);
 
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(s1), Value::known(s2)],
-            directions: [Value::known(Fp::zero()), Value::known(Fp::one())],
+            siblings: [Value::known(s1), Value::known(s2), Value::known(s3)],
+            directions: [Value::known(Fp::zero()), Value::known(Fp::one()), Value::known(Fp::zero())],
         };
 
         let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
         assert!(
             prover.verify().is_ok(),
-            "Direction bits [0, 1] should verify"
+            "Direction bits [0, 1, 0] should verify"
         );
     }
 
@@ -211,18 +266,21 @@ mod tests {
         let leaf = Fp::from(10u64);
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
+        let s3 = Fp::from(40);
 
-        //compute root for [0, 0]: hash(hash(leaf, s1), s2)
+        //compute root for [0, 0, 0]: hash(hash(hash(leaf, s1), s2), s3)
         let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
             .hash([leaf, s1]);
+        let h2 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([h1, s2]);
         let expected_root =
-            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h2, s3]);
 
-        //but provide direction bits [1, 0] which would compute: hash(hash(s1, leaf), s2)
+        //but provide direction bits [1, 0, 0] which would compute: hash(hash(hash(s1, leaf), s2), s3)
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(s1), Value::known(s2)],
-            directions: [Value::known(Fp::one()), Value::known(Fp::zero())],
+            siblings: [Value::known(s1), Value::known(s2), Value::known(s3)],
+            directions: [Value::known(Fp::one()), Value::known(Fp::zero()), Value::known(Fp::zero())],
         };
 
         let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
@@ -238,17 +296,20 @@ mod tests {
         let leaf = Fp::from(10u64);
         let s1 = Fp::from(20);
         let s2 = Fp::from(30);
+        let s3 = Fp::from(40);
 
         let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
             .hash([leaf, s1]);
+        let h2 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+            .hash([h1, s2]);
         let expected_root =
-            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, s2]);
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h2, s3]);
 
         //use an invalid direction bit value (should be 0 or 1, but we use 2)
         let circuit = MerkleCircuit {
             leaf: Value::known(leaf),
-            siblings: [Value::known(s1), Value::known(s2)],
-            directions: [Value::known(Fp::from(2)), Value::known(Fp::zero())],
+            siblings: [Value::known(s1), Value::known(s2), Value::known(s3)],
+            directions: [Value::known(Fp::from(2)), Value::known(Fp::zero()), Value::known(Fp::zero())],
         };
 
         let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
