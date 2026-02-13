@@ -11,23 +11,25 @@ pub struct ZKProofResponse {
     pub proof: bool,
 }
 
-pub struct ZKService {}
+pub struct ZKService {
+    tree: MerkleTree,
+}
 
 impl Injectable for ZKService {}
 
 impl ZKService {
     pub fn new() -> Self {
-        Self {}
+        //initialize with example leaves
+        //in a real application, you might load this from a database or configuration
+        let tree = MerkleTree::new(vec![10u64, 20, 30, 40]);
+
+        Self { tree }
     }
 
     pub fn zk_proof(&self, leaf_val: u64) -> ZKProofResponse {
-        //build a Merkle tree with example leaves
-        //in a real application, this tree would be constructed from actual data
-        //and potentially stored/cached rather than rebuilt each time
-        let tree = MerkleTree::new(vec![10u64, 20, 30, 40]);
-
+        //use the stored tree instead of rebuilding each time
         //try to find the leaf in the tree
-        let leaf_index = tree
+        let leaf_index = self.tree
             .leaves()
             .iter()
             .position(|&l| l == Fp::from(leaf_val));
@@ -35,7 +37,7 @@ impl ZKService {
         //if the leaf is not in the tree, the proof will fail
         let (leaf, siblings, directions, expected_root) = if let Some(idx) = leaf_index {
             //generate proof for the found leaf
-            let proof = tree.generate_proof(idx).unwrap();
+            let proof = self.tree.generate_proof(idx).unwrap();
 
             //convert siblings and directions to arrays for the circuit
             let siblings_array: [Fp; 2] = [proof.siblings[0], proof.siblings[1]];
@@ -54,7 +56,7 @@ impl ZKService {
                 leaf,
                 [Fp::zero(), Fp::zero()],
                 [Fp::zero(), Fp::zero()],
-                tree.root(),
+                self.tree.root(),
             )
         };
 
