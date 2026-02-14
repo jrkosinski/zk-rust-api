@@ -1,9 +1,10 @@
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::{circuit::Value, pasta::Fp};
 use rust_api::prelude::*;
+use std::sync::Arc;
 
 use super::merkle_circuit::{MerkleCircuit, DEPTH};
-use super::merkle_tree::MerkleTree;
+use super::merkle_tree_service::MerkleTreeService;
 
 /// Response type for zero-knowledge proof verification.
 /// Contains a boolean indicating whether the proof is valid.
@@ -13,23 +14,18 @@ pub struct ZKProofResponse {
 }
 
 /// Service for generating and verifying zero-knowledge proofs using Merkle trees.
-/// Stores a Merkle tree and can generate proofs that a given value exists in the tree.
+/// Uses MerkleTreeService to access the shared default Merkle tree.
 pub struct ZKService {
-    tree: MerkleTree,
+    tree_service: Arc<MerkleTreeService>,
 }
 
 impl Injectable for ZKService {}
 
 impl ZKService {
-    /// Creates a new ZKService with a default Merkle tree.
-    /// The tree is initialized with example leaves [10, 20, 30, 40, 50, 60, 70, 80].
-    /// In a production application, the tree would be loaded from a database or configuration.
-    pub fn new() -> Self {
-        //initialize with example leaves
-        //in a real application, you might load this from a database or configuration
-        let tree = MerkleTree::new(vec![10u64, 20, 30, 40, 50, 60, 70, 80]);
-
-        Self { tree }
+    /// Creates a new ZKService with a reference to the MerkleTreeService.
+    /// The tree is accessed from MerkleTreeService, which maintains the shared default tree.
+    pub fn new(tree_service: Arc<MerkleTreeService>) -> Self {
+        Self { tree_service }
     }
 
     /// Generates a zero-knowledge proof that a given leaf value exists in the Merkle tree.
@@ -42,57 +38,59 @@ impl ZKService {
     /// A ZKProofResponse with proof=true if the leaf exists in the tree and verification succeeds,
     /// or proof=false if the leaf doesn't exist or verification fails.
     pub fn zk_proof(&self, leaf_val: u64) -> ZKProofResponse {
-        //use the stored tree instead of rebuilding each time
-        //try to find the leaf in the tree
-        let leaf_index = self.tree
-            .leaves()
-            .iter()
-            .position(|&l| l == Fp::from(leaf_val));
+        //access the tree from the tree service
+        self.tree_service.with_tree(|tree| {
+            //try to find the leaf in the tree
+            let leaf_index = tree
+                .leaves()
+                .iter()
+                .position(|&l| l == Fp::from(leaf_val));
 
-        //if the leaf is not in the tree, the proof will fail
-        let (leaf, siblings, directions, expected_root) = if let Some(idx) = leaf_index {
-            //generate proof for the found leaf
-            let proof = self.tree.generate_proof(idx).unwrap();
+            //if the leaf is not in the tree, the proof will fail
+            let (leaf, siblings, directions, expected_root) = if let Some(idx) = leaf_index {
+                //generate proof for the found leaf
+                let proof = tree.generate_proof(idx).unwrap();
 
-            //convert siblings and directions to arrays for the circuit
-            //the proof returns Vecs, but the circuit needs fixed-size arrays matching DEPTH
-            let siblings_array: [Fp; DEPTH] = proof.siblings
-                .try_into()
-                .expect("Tree depth doesn't match circuit DEPTH constant");
-            let directions_array: [Fp; DEPTH] = proof.directions
-                .try_into()
-                .expect("Tree depth doesn't match circuit DEPTH constant");
+                //convert siblings and directions to arrays for the circuit
+                //the proof returns Vecs, but the circuit needs fixed-size arrays matching DEPTH
+                let siblings_array: [Fp; DEPTH] = proof.siblings
+                    .try_into()
+                    .expect("Tree depth doesn't match circuit DEPTH constant");
+                let directions_array: [Fp; DEPTH] = proof.directions
+                    .try_into()
+                    .expect("Tree depth doesn't match circuit DEPTH constant");
 
-            (
-                proof.leaf,
-                siblings_array,
-                directions_array,
-                proof.root,
-            )
-        } else {
-            //leaf not in tree - use dummy values that will fail verification
-            let leaf = Fp::from(leaf_val);
-            (
-                leaf,
-                [Fp::zero(); DEPTH],
-                [Fp::zero(); DEPTH],
-                self.tree.root(),
-            )
-        };
+                (
+                    proof.leaf,
+                    siblings_array,
+                    directions_array,
+                    proof.root,
+                )
+            } else {
+                //leaf not in tree - use dummy values that will fail verification
+                let leaf = Fp::from(leaf_val);
+                (
+                    leaf,
+                    [Fp::zero(); DEPTH],
+                    [Fp::zero(); DEPTH],
+                    tree.root(),
+                )
+            };
 
-        let circuit = MerkleCircuit {
-            leaf: Value::known(leaf),
-            siblings: siblings.map(|s| Value::known(s)),
-            directions: directions.map(|d| Value::known(d)),
-        };
+            let circuit = MerkleCircuit {
+                leaf: Value::known(leaf),
+                siblings: siblings.map(|s| Value::known(s)),
+                directions: directions.map(|d| Value::known(d)),
+            };
 
-        //k=8 gives 2^8=256 rows which is enough for poseidon operations
-        //the circuit proves that the provided leaf hashes to expected_root
-        let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
+            //k=8 gives 2^8=256 rows which is enough for poseidon operations
+            //the circuit proves that the provided leaf hashes to expected_root
+            let prover = MockProver::run(8, &circuit, vec![vec![expected_root]]).unwrap();
 
-        ZKProofResponse {
-            proof: prover.verify().is_ok(),
-        }
+            ZKProofResponse {
+                proof: prover.verify().is_ok(),
+            }
+        })
     }
 }
 
@@ -105,7 +103,8 @@ mod tests {
 
     #[test]
     fn test_zk_proof_with_correct_value() {
-        let service = ZKService::new();
+        let tree_service = Arc::new(MerkleTreeService::new());
+        let service = ZKService::new(tree_service);
         let response = service.zk_proof(10);
 
         assert!(
@@ -116,7 +115,8 @@ mod tests {
 
     #[test]
     fn test_zk_proof_with_incorrect_value() {
-        let service = ZKService::new();
+        let tree_service = Arc::new(MerkleTreeService::new());
+        let service = ZKService::new(tree_service);
         let response = service.zk_proof(15);
 
         assert!(
@@ -127,7 +127,8 @@ mod tests {
 
     #[test]
     fn test_zk_proof_with_zero() {
-        let service = ZKService::new();
+        let tree_service = Arc::new(MerkleTreeService::new());
+        let service = ZKService::new(tree_service);
         let response = service.zk_proof(0);
 
         assert!(
@@ -138,7 +139,8 @@ mod tests {
 
     #[test]
     fn test_zk_proof_with_large_incorrect_value() {
-        let service = ZKService::new();
+        let tree_service = Arc::new(MerkleTreeService::new());
+        let service = ZKService::new(tree_service);
         let response = service.zk_proof(1000);
 
         assert!(
@@ -152,7 +154,8 @@ mod tests {
         //test with a value from the last level of the tree (depth 3, 8 leaves)
         //the tree has leaves [10, 20, 30, 40, 50, 60, 70, 80]
         //testing with 70, which is at index 6 (second to last leaf)
-        let service = ZKService::new();
+        let tree_service = Arc::new(MerkleTreeService::new());
+        let service = ZKService::new(tree_service);
         let response = service.zk_proof(70);
 
         assert!(
@@ -164,7 +167,8 @@ mod tests {
     #[test]
     fn test_zk_proof_with_last_leaf() {
         //test with the very last leaf in the tree (index 7)
-        let service = ZKService::new();
+        let tree_service = Arc::new(MerkleTreeService::new());
+        let service = ZKService::new(tree_service);
         let response = service.zk_proof(80);
 
         assert!(

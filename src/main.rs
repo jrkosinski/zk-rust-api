@@ -1,4 +1,5 @@
 use rust_api::prelude::*;
+use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod controllers;
@@ -51,7 +52,6 @@ fn setup_container() -> Container {
 
     // Register services
     container.register_factory(HealthService::new);
-    container.register_factory(ZKService::new);
     container.register_factory(MerkleTreeService::new);
 
     container
@@ -61,8 +61,10 @@ fn setup_container() -> Container {
 fn build_router(container: &Container) -> Router {
     // Resolve services from container
     let health_service = container.resolve::<HealthService>().unwrap();
-    let zk_service = container.resolve::<ZKService>().unwrap();
     let tree_service = container.resolve::<MerkleTreeService>().unwrap();
+
+    // ZKService depends on MerkleTreeService, so we create it manually
+    let zk_service = Arc::new(ZKService::new(tree_service.clone()));
 
     // Build separate routers for each service with their own state
     let health_router = Router::new()

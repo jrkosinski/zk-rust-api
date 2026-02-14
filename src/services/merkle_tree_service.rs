@@ -15,9 +15,13 @@ pub struct MerkleTreeService {
 impl Injectable for MerkleTreeService {}
 
 impl MerkleTreeService {
+    /// Creates a new MerkleTreeService with a default Merkle tree.
+    /// The tree is initialized with example leaves [10, 20, 30, 40, 50, 60, 70, 80].
+    /// This is the same default tree previously used in ZKService.
     pub fn new() -> Self {
+        let tree = MerkleTree::new(vec![10u64, 20, 30, 40, 50, 60, 70, 80]);
         Self {
-            tree: Mutex::new(MerkleTree::new(vec![0u64])),
+            tree: Mutex::new(tree),
         }
     }
 
