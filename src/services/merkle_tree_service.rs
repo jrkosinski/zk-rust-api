@@ -25,10 +25,22 @@ impl MerkleTreeService {
         }
     }
 
-    pub fn add_to_tree(&self) -> TreeResponse {
-        TreeResponse {
-            data: "ok".to_string(),
-        }
+    /// Adds a new leaf value to the Merkle tree and rebuilds it.
+    /// Returns the new root hash after the tree is rebuilt.
+    ///
+    /// # Arguments
+    /// * `value` - The u64 value to add as a leaf
+    ///
+    /// # Returns
+    /// TreeResponse containing the new root hash as a hex string
+    pub fn add_to_tree(&self, value: u64) -> TreeResponse {
+        self.with_tree_mut(|tree| {
+            tree.add(value);
+            let root = tree.root();
+            TreeResponse {
+                data: format!("{:?}", root),
+            }
+        })
     }
 
     /// Returns a read-only reference to the MerkleTree.
@@ -48,5 +60,125 @@ impl MerkleTreeService {
     {
         let mut tree = self.tree.lock().unwrap();
         f(&mut tree)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use halo2_proofs::pasta::Fp;
+
+    #[test]
+    fn test_add_to_tree_and_verify() {
+        //create a new service with the default tree [10, 20, 30, 40, 50, 60, 70, 80]
+        let service = MerkleTreeService::new();
+
+        //verify initial state - value 90 should NOT be in the tree
+        let initial_contains_90 = service.with_tree(|tree| {
+            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
+        });
+        assert!(!initial_contains_90, "Value 90 should not be in tree initially");
+
+        //add value 90 to the tree
+        let response = service.add_to_tree(90);
+
+        //verify the response is not empty
+        assert!(!response.data.is_empty(), "Response should contain root hash");
+
+        //verify the value was actually added to the tree
+        let now_contains_90 = service.with_tree(|tree| {
+            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
+        });
+        assert!(now_contains_90, "Value 90 should be in the tree after adding");
+
+        //verify we can find the value at a specific position (should be at the end before padding)
+        let leaf_index = service.with_tree(|tree| {
+            tree.leaves().iter().position(|&leaf| leaf == Fp::from(90u64))
+        });
+        assert!(leaf_index.is_some(), "Should be able to find index of value 90");
+
+        //verify we can generate a proof for the newly added value
+        let proof_result = service.with_tree(|tree| {
+            tree.generate_proof(leaf_index.unwrap())
+        });
+        assert!(proof_result.is_some(), "Should be able to generate proof for value 90");
+    }
+
+    #[test]
+    fn test_add_many_to_tree_and_verify() {
+        //create a new service with the default tree [10, 20, 30, 40, 50, 60, 70, 80]
+        let service = MerkleTreeService::new();
+
+        //verify initial state - value 90 should NOT be in the tree
+        let initial_contains_90 = service.with_tree(|tree| {
+            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
+        });
+        assert!(!initial_contains_90, "Value 90 should not be in tree initially");
+
+        //add several values to the tree
+        let response = service.add_to_tree(410);
+        let response = service.add_to_tree(190);
+        let response = service.add_to_tree(90);
+        let response = service.add_to_tree(290);
+        let response = service.add_to_tree(240);
+
+        //verify the response is not empty
+        assert!(!response.data.is_empty(), "Response should contain root hash");
+
+        //verify the value was actually added to the tree
+        let now_contains_90 = service.with_tree(|tree| {
+            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
+        });
+        assert!(now_contains_90, "Value 90 should be in the tree after adding");
+
+        //verify we can find the value at a specific position (should be at the end before padding)
+        let leaf_index = service.with_tree(|tree| {
+            tree.leaves().iter().position(|&leaf| leaf == Fp::from(90u64))
+        });
+        assert!(leaf_index.is_some(), "Should be able to find index of value 90");
+
+        //verify we can generate a proof for the newly added value
+        let proof_result = service.with_tree(|tree| {
+            tree.generate_proof(leaf_index.unwrap())
+        });
+        assert!(proof_result.is_some(), "Should be able to generate proof for value 90");
+    }
+
+    #[test]
+    fn test_add_multiple_values() {
+        let service = MerkleTreeService::new();
+
+        //add multiple values
+        service.add_to_tree(90);
+        service.add_to_tree(100);
+        service.add_to_tree(110);
+
+        //verify all values are present
+        service.with_tree(|tree| {
+            let leaves_contain_90 = tree.leaves().iter().any(|&l| l == Fp::from(90u64));
+            let leaves_contain_100 = tree.leaves().iter().any(|&l| l == Fp::from(100u64));
+            let leaves_contain_110 = tree.leaves().iter().any(|&l| l == Fp::from(110u64));
+
+            assert!(leaves_contain_90, "Tree should contain 90");
+            assert!(leaves_contain_100, "Tree should contain 100");
+            assert!(leaves_contain_110, "Tree should contain 110");
+        });
+    }
+
+    #[test]
+    fn test_root_changes_after_add() {
+        let service = MerkleTreeService::new();
+
+        //get initial root
+        let initial_root = service.with_tree(|tree| tree.root());
+
+        //add a value
+        service.add_to_tree(90);
+
+        //get new root
+        let new_root = service.with_tree(|tree| tree.root());
+
+        //verify root changed
+        assert_ne!(initial_root, new_root, "Root should change after adding a value");
     }
 }
