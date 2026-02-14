@@ -7,10 +7,10 @@ mod services;
 // Import controller handlers and their macro-generated path constants
 use controllers::health_controller::{__health_check_route, health_check};
 use controllers::zk_controller::{__get_zk_route, get_zk};
-use controllers::tree_controller::{__add_to_tree_route, add_to_tree};
+use controllers::merkle_tree_controller::{__add_to_tree_route, add_to_tree};
 use crate::services::health_service::HealthService;
 use crate::services::zk_service::ZKService;
-use crate::services::tree_service::TreeService;
+use crate::services::merkle_tree_service::MerkleTreeService;
 
 /// Root endpoint handler that returns a welcome message.
 #[get("/")]
@@ -52,7 +52,7 @@ fn setup_container() -> Container {
     // Register services
     container.register_factory(HealthService::new);
     container.register_factory(ZKService::new);
-    container.register_factory(TreeService::new);
+    container.register_factory(MerkleTreeService::new);
 
     container
 }
@@ -62,7 +62,7 @@ fn build_router(container: &Container) -> Router {
     // Resolve services from container
     let health_service = container.resolve::<HealthService>().unwrap();
     let zk_service = container.resolve::<ZKService>().unwrap();
-    let tree_service = container.resolve::<TreeService>().unwrap();
+    let tree_service = container.resolve::<MerkleTreeService>().unwrap();
 
     // Build separate routers for each service with their own state
     let health_router = Router::new()
