@@ -1,6 +1,7 @@
 use rust_api::prelude::*;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tower_http::services::ServeDir;
 
 mod controllers;
 mod services;
@@ -8,7 +9,7 @@ mod services;
 // Import controller handlers and their macro-generated path constants
 use controllers::health_controller::{__health_check_route, health_check};
 use controllers::zk_controller::{__get_zk_route, get_zk};
-use controllers::merkle_tree_controller::{__add_to_tree_route, add_to_tree};
+use controllers::merkle_tree_controller::{__add_to_tree_route, add_to_tree, __visualize_tree_route, visualize_tree};
 use crate::services::health_service::HealthService;
 use crate::services::zk_service::ZKService;
 use crate::services::merkle_tree_service::MerkleTreeService;
@@ -77,6 +78,7 @@ fn build_router(container: &Container) -> Router {
 
     let tree_router = Router::new()
         .route(__add_to_tree_route, routing::post(add_to_tree))
+        .route(__visualize_tree_route, routing::get(visualize_tree))
         .with_state(tree_service);
 
     // Merge all routers together
@@ -85,6 +87,7 @@ fn build_router(container: &Container) -> Router {
         .merge(health_router)
         .merge(zk_router)
         .merge(tree_router)
+        .nest_service("/static", ServeDir::new("static"))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
 }

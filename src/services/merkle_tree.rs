@@ -48,7 +48,7 @@ pub struct MerkleTree {
     leaves: Vec<Fp>,
     /// All nodes in the tree, organized by levels (0 = leaves, last = root)
     /// Each level contains the hashes at that level
-    levels: Vec<Vec<Fp>>,
+    pub levels: Vec<Vec<Fp>>,
     /// The depth of the tree (number of levels from leaf to root, not including leaf level)
     depth: usize,
 }

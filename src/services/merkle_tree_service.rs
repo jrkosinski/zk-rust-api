@@ -1,11 +1,19 @@
 use rust_api::prelude::*;
 use crate::services::merkle_tree::MerkleTree;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+use plotters::prelude::*;
 
 /// Response type for the tree endpoint.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TreeResponse {
     pub data: String,
+}
+
+/// Response type for the tree visualization endpoint.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TreeVisualizationResponse {
+    pub image_url: String,
 }
 
 pub struct MerkleTreeService {
@@ -60,6 +68,111 @@ impl MerkleTreeService {
     {
         let mut tree = self.tree.lock().unwrap();
         f(&mut tree)
+    }
+
+    /// Visualizes the Merkle tree and saves it as an image.
+    /// Returns a URL to the generated image.
+    ///
+    /// # Returns
+    /// TreeVisualizationResponse containing the URL to the generated image
+    pub fn visualize_tree(&self) -> std::result::Result<TreeVisualizationResponse, String> {
+        // Generate unique filename using timestamp
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Time error: {}", e))?
+            .as_millis();
+
+        let filename = format!("tree_{}.png", timestamp);
+        let filepath = format!("static/{}", filename);
+
+        // Create the image
+        self.with_tree(|tree| {
+            Self::generate_tree_image(tree, &filepath)
+        })?;
+
+        Ok(TreeVisualizationResponse {
+            image_url: format!("/static/{}", filename),
+        })
+    }
+
+    /// Generates the actual tree visualization image.
+    fn generate_tree_image(tree: &MerkleTree, filepath: &str) -> std::result::Result<(), String> {
+        let depth = tree.depth();
+        let num_leaves = tree.num_leaves();
+
+        // Calculate image dimensions based on tree size
+        let width = (num_leaves * 120).max(800);
+        let height = ((depth + 2) * 120).max(600);
+
+        let root = BitMapBackend::new(filepath, (width as u32, height as u32))
+            .into_drawing_area();
+
+        root.fill(&WHITE)
+            .map_err(|e| format!("Fill error: {}", e))?;
+
+        // Draw the tree level by level
+        let level_height = height / (depth + 2);
+
+        // Iterate through each level
+        for (level_idx, level_nodes) in tree.levels.iter().enumerate() {
+            let y = level_height * (level_idx + 1);
+            let node_count = level_nodes.len();
+            let spacing = width / (node_count + 1);
+
+            for (node_idx, node) in level_nodes.iter().enumerate() {
+                let x = spacing * (node_idx + 1);
+
+                // Draw node circle
+                root.draw(&Circle::new(
+                    (x as i32, y as i32),
+                    15,
+                    ShapeStyle::from(&BLUE).filled(),
+                ))
+                .map_err(|e| format!("Draw error: {}", e))?;
+
+                // Draw hash text (truncated)
+                let hash_str = format!("{:?}", node);
+                let truncated = if hash_str.len() > 12 {
+                    format!("{}...", &hash_str[..12])
+                } else {
+                    hash_str
+                };
+
+                root.draw(&Text::new(
+                    truncated,
+                    (x as i32, y as i32 + 25),
+                    ("sans-serif", 12).into_font().color(&BLACK),
+                ))
+                .map_err(|e| format!("Text error: {}", e))?;
+
+                // Draw lines to children (if not the last level)
+                if level_idx < depth {
+                    let next_level_spacing = width / (node_count * 2 + 1);
+                    let child_left_x = next_level_spacing * (node_idx * 2 + 1);
+                    let child_right_x = next_level_spacing * (node_idx * 2 + 2);
+                    let next_y = level_height * (level_idx + 2);
+
+                    // Line to left child
+                    root.draw(&PathElement::new(
+                        vec![(x as i32, y as i32), (child_left_x as i32, next_y as i32)],
+                        &BLACK,
+                    ))
+                    .map_err(|e| format!("Line error: {}", e))?;
+
+                    // Line to right child
+                    root.draw(&PathElement::new(
+                        vec![(x as i32, y as i32), (child_right_x as i32, next_y as i32)],
+                        &BLACK,
+                    ))
+                    .map_err(|e| format!("Line error: {}", e))?;
+                }
+            }
+        }
+
+        root.present()
+            .map_err(|e| format!("Present error: {}", e))?;
+
+        Ok(())
     }
 }
 
