@@ -1,0 +1,5 @@
+### Environment Configuration
+### This file contains base URL and common variables used across all HTTP requests
+
+@baseUrl = http://localhost:3000
+@contentType = application/json

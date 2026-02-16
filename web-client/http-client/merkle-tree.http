@@ -1,0 +1,31 @@
+### Merkle Tree Controller Endpoints
+
+@baseUrl = http://localhost:3000
+@contentType = application/json
+
+### Add value to Merkle Tree - Example 1
+POST {{baseUrl}}/tree
+Content-Type: {{contentType}}
+
+{
+  "value": 90
+}
+
+### Add value to Merkle Tree - Example 2
+POST {{baseUrl}}/tree
+Content-Type: {{contentType}}
+
+{
+  "value": 42
+}
+
+### Add value to Merkle Tree - Example 3
+POST {{baseUrl}}/tree
+Content-Type: {{contentType}}
+
+{
+  "value": 123
+}
+
+### Visualize Merkle Tree
+GET {{baseUrl}}/tree/visualize

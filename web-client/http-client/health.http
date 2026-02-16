@@ -1,0 +1,6 @@
+### Health Controller Endpoints
+
+@baseUrl = http://localhost:3000
+
+### Health Check
+GET {{baseUrl}}/health

@@ -1,0 +1,13 @@
+### ZK Controller Endpoints
+
+@baseUrl = http://localhost:3000
+
+### Get ZK Proof - Example 1
+# Query parameter: leaf (u64)
+GET {{baseUrl}}/zk?leaf=42
+
+### Get ZK Proof - Example 2
+GET {{baseUrl}}/zk?leaf=100
+
+### Get ZK Proof - Example 3
+GET {{baseUrl}}/zk?leaf=1
