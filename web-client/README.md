@@ -19,7 +19,7 @@ A React-based web interface for visualizing and interacting with the ZK Merkle T
 ### Installation
 
 ```bash
-npm install
+yarn install
 ```
 
 ### Development
@@ -27,7 +27,7 @@ npm install
 Start the development server:
 
 ```bash
-npm run dev
+yarn run dev
 ```
 
 The application will be available at `http://localhost:5173`
@@ -35,13 +35,13 @@ The application will be available at `http://localhost:5173`
 ### Building for Production
 
 ```bash
-npm run build
+yarn build
 ```
 
 ### Preview Production Build
 
 ```bash
-npm run preview
+yarn preview
 ```
 
 ## Project Structure
