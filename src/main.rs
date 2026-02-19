@@ -8,8 +8,12 @@ mod services;
 
 // Import controller handlers and their macro-generated path constants
 use controllers::health_controller::{__health_check_route, health_check};
-use controllers::zk_controller::{__get_zk_route, get_zk};
-use controllers::merkle_tree_controller::{__add_to_tree_route, add_to_tree, __visualize_tree_route, visualize_tree};
+use controllers::zk_controller::{__post_zk_route, post_zk};
+use controllers::merkle_tree_controller::{
+    __add_to_tree_route, add_to_tree,
+    __register_route, register,
+    __visualize_tree_route, visualize_tree,
+};
 use crate::services::health_service::HealthService;
 use crate::services::zk_service::ZKService;
 use crate::services::merkle_tree_service::MerkleTreeService;
@@ -73,10 +77,11 @@ fn build_router(container: &Container) -> Router {
         .with_state(health_service);
 
     let zk_router = Router::new()
-        .route(__get_zk_route, routing::get(get_zk))
+        .route(__post_zk_route, routing::post(post_zk))
         .with_state(zk_service);
 
     let tree_router = Router::new()
+        .route(__register_route, routing::post(register))
         .route(__add_to_tree_route, routing::post(add_to_tree))
         .route(__visualize_tree_route, routing::get(visualize_tree))
         .with_state(tree_service);

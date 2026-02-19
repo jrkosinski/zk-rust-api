@@ -1,4 +1,6 @@
-use crate::services::merkle_tree_service::{TreeResponse, TreeVisualizationResponse, MerkleTreeService};
+use crate::services::merkle_tree_service::{
+    parse_fp_hex, RegisterRequest, TreeResponse, MerkleTreeService,
+};
 use rust_api::prelude::*;
 use std::sync::Arc;
 
@@ -7,6 +9,28 @@ use std::sync::Arc;
 pub struct AddToTreeRequest {
     /// The value to add as a leaf in the tree
     pub value: u64,
+}
+
+/// Registers a new commitment in the Merkle tree.
+/// The client computes `commitment = Poseidon(secret)` locally and sends only the commitment.
+/// The server never learns the secret.
+///
+/// # Request Body
+/// ```json
+/// { "commitment": "<64-char hex Fp>" }
+/// ```
+///
+/// # Response
+/// Returns a TreeResponse containing the new root hash, or 400 on invalid commitment.
+#[post("/register")]
+pub async fn register(
+    State(service): State<Arc<MerkleTreeService>>,
+    Json(request): Json<RegisterRequest>,
+) -> impl IntoResponse {
+    match parse_fp_hex(&request.commitment) {
+        Some(commitment) => (StatusCode::OK, Json(service.register_commitment(commitment))).into_response(),
+        None => (StatusCode::BAD_REQUEST, "invalid commitment: expected 64-char hex (32 bytes)").into_response(),
+    }
 }
 
 /// Adds a new value to the Merkle tree and returns the new root hash.

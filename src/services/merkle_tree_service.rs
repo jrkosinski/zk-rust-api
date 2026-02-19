@@ -1,5 +1,7 @@
 use rust_api::prelude::*;
 use crate::services::merkle_tree::MerkleTree;
+use halo2_gadgets::poseidon::primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3};
+use halo2_proofs::pasta::Fp;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use plotters::prelude::*;
@@ -16,21 +18,67 @@ pub struct TreeVisualizationResponse {
     pub image_url: String,
 }
 
+/// Request body for registering a commitment in the tree.
+/// The client computes `commitment = Poseidon(secret)` locally and sends only this value.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegisterRequest {
+    /// Hex-encoded Fp field element representing Poseidon(secret)
+    pub commitment: String,
+}
+
 pub struct MerkleTreeService {
     tree: Mutex<MerkleTree>,
 }
 
 impl Injectable for MerkleTreeService {}
 
+/// Computes Poseidon(secret) natively, returning the commitment as Fp.
+pub fn poseidon_commit(secret: u64) -> Fp {
+    PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
+        .hash([Fp::from(secret), Fp::zero()])
+}
+
+/// Parses a 0x-prefixed or raw hex string into an Fp field element.
+/// Expects 32 bytes (64 hex chars) in little-endian byte order.
+pub fn parse_fp_hex(hex: &str) -> Option<Fp> {
+    use ff::PrimeField;
+    let hex = hex.trim_start_matches("0x");
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    if bytes.len() != 32 { return None; }
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    Fp::from_repr(arr).into()
+}
+
 impl MerkleTreeService {
-    /// Creates a new MerkleTreeService with a default Merkle tree.
-    /// The tree is initialized with example leaves [10, 20, 30, 40, 50, 60, 70, 80].
-    /// This is the same default tree previously used in ZKService.
+    /// Creates a new MerkleTreeService seeded with pre-computed commitments.
+    /// Secrets 42, 99, 7, 13, 55, 77, 100, 200 are registered as Poseidon commitments.
+    /// The corresponding secrets can be used to generate valid ZK proofs.
     pub fn new() -> Self {
-        let tree = MerkleTree::new(vec![10u64, 20, 30, 40, 50, 60, 70, 80]);
+        let seed_secrets: Vec<u64> = vec![42, 99, 7, 13, 55, 77, 100, 200];
+        let commitments: Vec<Fp> = seed_secrets.iter().map(|&s| poseidon_commit(s)).collect();
+        let tree = MerkleTree::new(commitments);
         Self {
             tree: Mutex::new(tree),
         }
+    }
+
+    /// Registers a new commitment (Poseidon hash of a secret) in the tree.
+    /// The caller computes `commitment = Poseidon(secret)` and sends only the commitment.
+    /// Returns the new root hash after the tree is rebuilt.
+    ///
+    /// # Arguments
+    /// * `commitment` - The Fp commitment to register
+    ///
+    /// # Returns
+    /// TreeResponse containing the new root hash as a hex string
+    pub fn register_commitment(&self, commitment: Fp) -> TreeResponse {
+        self.with_tree_mut(|tree| {
+            tree.add(commitment);
+            TreeResponse { data: format!("{:?}", tree.root()) }
+        })
     }
 
     /// Adds a new leaf value to the Merkle tree and rebuilds it.
@@ -44,10 +92,7 @@ impl MerkleTreeService {
     pub fn add_to_tree(&self, value: u64) -> TreeResponse {
         self.with_tree_mut(|tree| {
             tree.add(value);
-            let root = tree.root();
-            TreeResponse {
-                data: format!("{:?}", root),
-            }
+            TreeResponse { data: format!("{:?}", tree.root()) }
         })
     }
 

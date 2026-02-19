@@ -19,6 +19,7 @@ exclude = [
 ]
 
 [dependencies]
+ff = "0.13"
 halo2_gadgets = "0.4.0"
 halo2_proofs = "0.3.2"
 rand = "0.9.2"

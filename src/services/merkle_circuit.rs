@@ -13,24 +13,19 @@ pub const DEPTH: usize = 3;
 
 #[derive(Clone, Debug)]
 pub struct MerkleCircuit {
-    /// Private leaf value
-    pub leaf: Value<Fp>,
+    /// Private secret witness — never revealed; the circuit proves Poseidon(secret) == commitment
+    pub secret: Value<Fp>,
 
-    /// Merkle path siblings (one per level)
-    /// For a tree of arbitrary depth, this array stores one sibling per level.
+    /// Merkle path siblings (one per level).
     /// The circuit hashes the current value with each sibling in sequence,
     /// moving up the tree until reaching the root.
     pub siblings: [Value<Fp>; DEPTH],
 
-    /// Direction bits (0 = cur is left, 1 = cur is right)
-    /// These bits determine the order of hashing at each level:
-    /// - If dir = 0: hash(cur, sibling) - current value is on the left
-    /// - If dir = 1: hash(sibling, cur) - current value is on the right
-    ///
+    /// Direction bits (0 = cur is left, 1 = cur is right).
     /// The circuit enforces:
     /// 1. Each direction bit must be binary (0 or 1)
-    /// 2. left = cur * (1 - dir) + sibling * dir
-    /// 3. right = cur * dir + sibling * (1 - dir)
+    /// 2. left  = cur * (1 - dir) + sibling * dir
+    /// 3. right = cur * dir       + sibling * (1 - dir)
     pub directions: [Value<Fp>; DEPTH],
 }
 
@@ -58,7 +53,7 @@ impl Circuit<Fp> for MerkleCircuit {
 
     fn without_witnesses(&self) -> Self {
         Self {
-            leaf: Value::unknown(),
+            secret: Value::unknown(),
             siblings: [Value::unknown(); DEPTH],
             directions: [Value::unknown(); DEPTH],
         }
@@ -175,10 +170,28 @@ impl Circuit<Fp> for MerkleCircuit {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> std::result::Result<(), plonk::Error> {
-        //assign the leaf value as the starting point
-        let mut cur_cell = layouter.assign_region(
-            || "assign leaf",
-            |mut region| region.assign_advice(|| "leaf", config.advice, 0, || self.leaf),
+        //step 1: assign secret as a private witness cell
+        let secret_cell = layouter.assign_region(
+            || "assign secret",
+            |mut region| region.assign_advice(|| "secret", config.advice, 0, || self.secret),
+        )?;
+
+        //step 2: hash Poseidon(secret, 0) inside the circuit to derive the commitment
+        let commitment_hasher = Hash::<_, _, P128Pow5T3, ConstantLength<2>, 3, 2>::init(
+            Pow5Chip::<Fp, 3, 2>::construct(config.poseidon.clone()),
+            layouter.namespace(|| "commitment hasher"),
+        )?;
+
+        //step 3: pad with zero to form the 2-element input [secret, 0]
+        let zero_cell = layouter.assign_region(
+            || "assign zero pad",
+            |mut region| region.assign_advice(|| "zero", config.advice, 0, || Value::known(Fp::zero())),
+        )?;
+
+        //commitment is Poseidon(secret, 0); this becomes the leaf for the Merkle path
+        let mut cur_cell = commitment_hasher.hash(
+            layouter.namespace(|| "compute commitment"),
+            [secret_cell, zero_cell],
         )?;
 
         //iterate through each level of the tree, from leaf to root
