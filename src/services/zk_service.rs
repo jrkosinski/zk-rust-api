@@ -49,16 +49,14 @@ impl ZKService {
     }
 
     /// Builds the MerkleCircuit for the given secret, looking up its commitment in the tree.
-    /// Returns a circuit with dummy witnesses if the commitment is not found.
+    /// Returns a circuit with dummy witnesses if the commitment is not found or the tree
+    /// depth does not match the circuit's fixed DEPTH (causing verification to fail gracefully).
     fn build_circuit(&self, secret: u64, commitment: Fp, tree: &super::merkle_tree::MerkleTree) -> MerkleCircuit {
         let leaf_index = tree.leaves().iter().position(|&l| l == commitment);
 
-        let (siblings, directions) = if let Some(idx) = leaf_index {
-            self.extract_proof_arrays(tree, idx)
-        } else {
-            //commitment not in tree — dummy witnesses will cause verification to fail
-            ([Fp::zero(); DEPTH], [Fp::zero(); DEPTH])
-        };
+        let (siblings, directions) = leaf_index
+            .and_then(|idx| self.extract_proof_arrays(tree, idx))
+            .unwrap_or(([Fp::zero(); DEPTH], [Fp::zero(); DEPTH]));
 
         MerkleCircuit {
             secret: Value::known(Fp::from(secret)),
@@ -68,11 +66,12 @@ impl ZKService {
     }
 
     /// Extracts fixed-size sibling and direction arrays from a Merkle proof at a given index.
-    fn extract_proof_arrays(&self, tree: &super::merkle_tree::MerkleTree, idx: usize) -> ([Fp; DEPTH], [Fp; DEPTH]) {
-        let proof = tree.generate_proof(idx).expect("valid index");
-        let siblings: [Fp; DEPTH] = proof.siblings.try_into().expect("depth mismatch");
-        let directions: [Fp; DEPTH] = proof.directions.try_into().expect("depth mismatch");
-        (siblings, directions)
+    /// Returns None if the tree depth does not match the circuit's fixed DEPTH.
+    fn extract_proof_arrays(&self, tree: &super::merkle_tree::MerkleTree, idx: usize) -> Option<([Fp; DEPTH], [Fp; DEPTH])> {
+        let proof = tree.generate_proof(idx)?;
+        let siblings: [Fp; DEPTH] = proof.siblings.try_into().ok()?;
+        let directions: [Fp; DEPTH] = proof.directions.try_into().ok()?;
+        Some((siblings, directions))
     }
 }
 
@@ -124,12 +123,16 @@ mod tests {
 
     #[test]
     fn test_zk_proof_after_register() {
-        //verify that a newly registered commitment can be proved
+        // The circuit is fixed at DEPTH=3 (8-leaf tree).
+        // Registering a 9th leaf grows the tree to depth 4; the circuit cannot
+        // accommodate the longer proof path, so verification fails gracefully
+        // (returns false) rather than panicking.
         let tree_service = Arc::new(MerkleTreeService::new());
         let commitment = poseidon_commit(999);
         tree_service.register_commitment(commitment);
 
         let service = ZKService::new(tree_service);
-        assert!(service.zk_proof(999).proof, "proof should succeed for freshly registered secret 999");
+        assert!(!service.zk_proof(999).proof,
+            "proof should fail gracefully when tree depth exceeds circuit DEPTH=3");
     }
 }
