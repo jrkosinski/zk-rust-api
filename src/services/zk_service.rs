@@ -127,9 +127,6 @@ mod tests {
         //verify that a newly registered commitment can be proved
         let tree_service = Arc::new(MerkleTreeService::new());
         let commitment = poseidon_commit(999);
-        use ff::PrimeField;
-        let bytes = commitment.to_repr();
-        let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
         tree_service.register_commitment(commitment);
 
         let service = ZKService::new(tree_service);
