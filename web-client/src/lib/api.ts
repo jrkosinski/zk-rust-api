@@ -7,6 +7,9 @@ import type {
     TreeResponse,
     TreeVisualizationResponse,
     AddToTreeRequest,
+    RegisterRequest,
+    ZKProofRequest,
+    ZKProofResponse,
 } from '../types/tree';
 
 const API_BASE = '/api';
@@ -30,10 +33,20 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 // Merkle Tree API
 export const treeApi = {
     /**
-     * Add a value to the Merkle tree
+     * Add a raw value to the Merkle tree (legacy / debug use)
      */
     addValue: (request: AddToTreeRequest) =>
         fetchJson<TreeResponse>(`${API_BASE}/tree`, {
+            method: 'POST',
+            body: JSON.stringify(request),
+        }),
+
+    /**
+     * Register a Poseidon commitment in the tree.
+     * The client should compute commitment = Poseidon(secret) locally.
+     */
+    register: (request: RegisterRequest) =>
+        fetchJson<TreeResponse>(`${API_BASE}/register`, {
             method: 'POST',
             body: JSON.stringify(request),
         }),
@@ -43,4 +56,17 @@ export const treeApi = {
      */
     visualize: () =>
         fetchJson<TreeVisualizationResponse>(`${API_BASE}/tree/visualize`),
+};
+
+// ZK Proof API
+export const zkApi = {
+    /**
+     * Prove knowledge of a secret whose Poseidon commitment is in the tree.
+     * Returns { proof: true } if the ZK circuit verifies successfully.
+     */
+    prove: (request: ZKProofRequest) =>
+        fetchJson<ZKProofResponse>(`${API_BASE}/zk`, {
+            method: 'POST',
+            body: JSON.stringify(request),
+        }),
 };
