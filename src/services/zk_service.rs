@@ -44,14 +44,21 @@ impl ZKService {
 
             //k=9 gives 2^9=512 rows; needed for two Poseidon hashes (commitment + path levels)
             let prover = MockProver::run(9, &circuit, vec![vec![root]]).unwrap();
-            ZKProofResponse { proof: prover.verify().is_ok() }
+            ZKProofResponse {
+                proof: prover.verify().is_ok(),
+            }
         })
     }
 
     /// Builds the MerkleCircuit for the given secret, looking up its commitment in the tree.
     /// Returns a circuit with dummy witnesses if the commitment is not found or the tree
     /// depth does not match the circuit's fixed DEPTH (causing verification to fail gracefully).
-    fn build_circuit(&self, secret: u64, commitment: Fp, tree: &super::merkle_tree::MerkleTree) -> MerkleCircuit {
+    fn build_circuit(
+        &self,
+        secret: u64,
+        commitment: Fp,
+        tree: &super::merkle_tree::MerkleTree,
+    ) -> MerkleCircuit {
         let leaf_index = tree.leaves().iter().position(|&l| l == commitment);
 
         let (siblings, directions) = leaf_index
@@ -67,7 +74,11 @@ impl ZKService {
 
     /// Extracts fixed-size sibling and direction arrays from a Merkle proof at a given index.
     /// Returns None if the tree depth does not match the circuit's fixed DEPTH.
-    fn extract_proof_arrays(&self, tree: &super::merkle_tree::MerkleTree, idx: usize) -> Option<([Fp; DEPTH], [Fp; DEPTH])> {
+    fn extract_proof_arrays(
+        &self,
+        tree: &super::merkle_tree::MerkleTree,
+        idx: usize,
+    ) -> Option<([Fp; DEPTH], [Fp; DEPTH])> {
         let proof = tree.generate_proof(idx)?;
         let siblings: [Fp; DEPTH] = proof.siblings.try_into().ok()?;
         let directions: [Fp; DEPTH] = proof.directions.try_into().ok()?;
@@ -77,8 +88,8 @@ impl ZKService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::merkle_tree_service::poseidon_commit;
+    use super::*;
 
     //seed secrets used in MerkleTreeService::new(): [42, 99, 7, 13, 55, 77, 100, 200]
 
@@ -132,7 +143,9 @@ mod tests {
         tree_service.register_commitment(commitment);
 
         let service = ZKService::new(tree_service);
-        assert!(!service.zk_proof(999).proof,
-            "proof should fail gracefully when tree depth exceeds circuit DEPTH=3");
+        assert!(
+            !service.zk_proof(999).proof,
+            "proof should fail gracefully when tree depth exceeds circuit DEPTH=3"
+        );
     }
 }

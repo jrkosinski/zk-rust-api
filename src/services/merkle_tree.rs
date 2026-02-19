@@ -1,6 +1,4 @@
-use halo2_gadgets::poseidon::{
-    primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3},
-};
+use halo2_gadgets::poseidon::primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3};
 use halo2_proofs::pasta::Fp;
 
 /// Represents a leaf value in the Merkle tree.
@@ -285,10 +283,7 @@ mod tests {
     fn test_mixed_leaf_types() {
         // Test using both unhashed and pre-hashed values
         let hashed_val = Fp::from(15u64);
-        let tree = MerkleTree::new(vec![
-            LeafValue::Unhashed(10),
-            LeafValue::Hashed(hashed_val),
-        ]);
+        let tree = MerkleTree::new(vec![LeafValue::Unhashed(10), LeafValue::Hashed(hashed_val)]);
 
         assert_eq!(tree.num_leaves(), 2);
         assert_eq!(tree.leaves()[0], Fp::from(10u64));
@@ -317,15 +312,15 @@ mod tests {
         let leaf = Fp::from(10u64);
         let sibling1 = Fp::from(20u64);
 
-        let h1 = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
-            .hash([leaf, sibling1]);
+        let h1 =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([leaf, sibling1]);
 
         // The sibling at level 1 should be hash(30, 40)
         let h2_sibling = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
             .hash([Fp::from(30u64), Fp::from(40u64)]);
 
-        let root = PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()
-            .hash([h1, h2_sibling]);
+        let root =
+            PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init().hash([h1, h2_sibling]);
 
         assert_eq!(proof.root, root);
         assert_eq!(proof.root, tree.root());

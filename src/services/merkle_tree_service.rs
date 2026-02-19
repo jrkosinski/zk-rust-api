@@ -1,10 +1,10 @@
-use rust_api::prelude::*;
 use crate::services::merkle_tree::MerkleTree;
 use halo2_gadgets::poseidon::primitives::{ConstantLength, Hash as PoseidonHash, P128Pow5T3};
 use halo2_proofs::pasta::Fp;
+use plotters::prelude::*;
+use rust_api::prelude::*;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use plotters::prelude::*;
 
 /// Response type for the tree endpoint.
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,7 +47,9 @@ pub fn parse_fp_hex(hex: &str) -> Option<Fp> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
         .collect::<Option<Vec<u8>>>()?;
-    if bytes.len() != 32 { return None; }
+    if bytes.len() != 32 {
+        return None;
+    }
     let arr: [u8; 32] = bytes.try_into().ok()?;
     Fp::from_repr(arr).into()
 }
@@ -77,7 +79,9 @@ impl MerkleTreeService {
     pub fn register_commitment(&self, commitment: Fp) -> TreeResponse {
         self.with_tree_mut(|tree| {
             tree.add(commitment);
-            TreeResponse { data: format!("{:?}", tree.root()) }
+            TreeResponse {
+                data: format!("{:?}", tree.root()),
+            }
         })
     }
 
@@ -92,7 +96,9 @@ impl MerkleTreeService {
     pub fn add_to_tree(&self, value: u64) -> TreeResponse {
         self.with_tree_mut(|tree| {
             tree.add(value);
-            TreeResponse { data: format!("{:?}", tree.root()) }
+            TreeResponse {
+                data: format!("{:?}", tree.root()),
+            }
         })
     }
 
@@ -131,9 +137,7 @@ impl MerkleTreeService {
         let filepath = format!("static/{}", filename);
 
         // Create the image
-        self.with_tree(|tree| {
-            Self::generate_tree_image(tree, &filepath)
-        })?;
+        self.with_tree(|tree| Self::generate_tree_image(tree, &filepath))?;
 
         Ok(TreeVisualizationResponse {
             image_url: format!("/static/{}", filename),
@@ -149,8 +153,7 @@ impl MerkleTreeService {
         let width = (num_leaves * 120).max(800);
         let height = ((depth + 2) * 120).max(600);
 
-        let root = BitMapBackend::new(filepath, (width as u32, height as u32))
-            .into_drawing_area();
+        let root = BitMapBackend::new(filepath, (width as u32, height as u32)).into_drawing_area();
 
         root.fill(&WHITE)
             .map_err(|e| format!("Fill error: {}", e))?;
@@ -168,12 +171,8 @@ impl MerkleTreeService {
                 let x = spacing * (node_idx + 1);
 
                 // Draw node circle
-                root.draw(&Circle::new(
-                    (x as i32, y as i32),
-                    15,
-                    ShapeStyle::from(&BLUE).filled(),
-                ))
-                .map_err(|e| format!("Draw error: {}", e))?;
+                root.draw(&Circle::new((x as i32, y as i32), 15, ShapeStyle::from(&BLUE).filled()))
+                    .map_err(|e| format!("Draw error: {}", e))?;
 
                 // Draw hash text (truncated)
                 let hash_str = format!("{:?}", node);
@@ -232,9 +231,8 @@ mod tests {
         let service = MerkleTreeService::new();
 
         //verify initial state - value 90 should NOT be in the tree
-        let initial_contains_90 = service.with_tree(|tree| {
-            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
-        });
+        let initial_contains_90 =
+            service.with_tree(|tree| tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64)));
         assert!(!initial_contains_90, "Value 90 should not be in tree initially");
 
         //add value 90 to the tree
@@ -244,21 +242,20 @@ mod tests {
         assert!(!response.data.is_empty(), "Response should contain root hash");
 
         //verify the value was actually added to the tree
-        let now_contains_90 = service.with_tree(|tree| {
-            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
-        });
+        let now_contains_90 =
+            service.with_tree(|tree| tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64)));
         assert!(now_contains_90, "Value 90 should be in the tree after adding");
 
         //verify we can find the value at a specific position (should be at the end before padding)
         let leaf_index = service.with_tree(|tree| {
-            tree.leaves().iter().position(|&leaf| leaf == Fp::from(90u64))
+            tree.leaves()
+                .iter()
+                .position(|&leaf| leaf == Fp::from(90u64))
         });
         assert!(leaf_index.is_some(), "Should be able to find index of value 90");
 
         //verify we can generate a proof for the newly added value
-        let proof_result = service.with_tree(|tree| {
-            tree.generate_proof(leaf_index.unwrap())
-        });
+        let proof_result = service.with_tree(|tree| tree.generate_proof(leaf_index.unwrap()));
         assert!(proof_result.is_some(), "Should be able to generate proof for value 90");
     }
 
@@ -268,9 +265,8 @@ mod tests {
         let service = MerkleTreeService::new();
 
         //verify initial state - value 90 should NOT be in the tree
-        let initial_contains_90 = service.with_tree(|tree| {
-            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
-        });
+        let initial_contains_90 =
+            service.with_tree(|tree| tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64)));
         assert!(!initial_contains_90, "Value 90 should not be in tree initially");
 
         //add several values to the tree
@@ -284,21 +280,20 @@ mod tests {
         assert!(!response.data.is_empty(), "Response should contain root hash");
 
         //verify the value was actually added to the tree
-        let now_contains_90 = service.with_tree(|tree| {
-            tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64))
-        });
+        let now_contains_90 =
+            service.with_tree(|tree| tree.leaves().iter().any(|&leaf| leaf == Fp::from(90u64)));
         assert!(now_contains_90, "Value 90 should be in the tree after adding");
 
         //verify we can find the value at a specific position (should be at the end before padding)
         let leaf_index = service.with_tree(|tree| {
-            tree.leaves().iter().position(|&leaf| leaf == Fp::from(90u64))
+            tree.leaves()
+                .iter()
+                .position(|&leaf| leaf == Fp::from(90u64))
         });
         assert!(leaf_index.is_some(), "Should be able to find index of value 90");
 
         //verify we can generate a proof for the newly added value
-        let proof_result = service.with_tree(|tree| {
-            tree.generate_proof(leaf_index.unwrap())
-        });
+        let proof_result = service.with_tree(|tree| tree.generate_proof(leaf_index.unwrap()));
         assert!(proof_result.is_some(), "Should be able to generate proof for value 90");
     }
 

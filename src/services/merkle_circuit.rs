@@ -138,17 +138,14 @@ impl Circuit<Fp> for MerkleCircuit {
                 //constraint 1: dir must be binary (0 or 1)
                 //dir * (1 - dir) = 0
                 s.clone() * dir.clone() * (Expression::Constant(Fp::one()) - dir.clone()),
-
                 //constraint 2: left = cur * (1 - dir) + sibling * dir
                 s.clone()
                     * (left
                         - (cur.clone() * (Expression::Constant(Fp::one()) - dir.clone())
                             + sibling.clone() * dir.clone())),
-
                 //constraint 3: right = cur * dir + sibling * (1 - dir)
                 s * (right
-                    - (cur * dir.clone()
-                        + sibling * (Expression::Constant(Fp::one()) - dir))),
+                    - (cur * dir.clone() + sibling * (Expression::Constant(Fp::one()) - dir))),
             ]
         });
 
@@ -185,14 +182,14 @@ impl Circuit<Fp> for MerkleCircuit {
         //step 3: pad with zero to form the 2-element input [secret, 0]
         let zero_cell = layouter.assign_region(
             || "assign zero pad",
-            |mut region| region.assign_advice(|| "zero", config.advice, 0, || Value::known(Fp::zero())),
+            |mut region| {
+                region.assign_advice(|| "zero", config.advice, 0, || Value::known(Fp::zero()))
+            },
         )?;
 
         //commitment is Poseidon(secret, 0); this becomes the leaf for the Merkle path
-        let mut cur_cell = commitment_hasher.hash(
-            layouter.namespace(|| "compute commitment"),
-            [secret_cell, zero_cell],
-        )?;
+        let mut cur_cell = commitment_hasher
+            .hash(layouter.namespace(|| "compute commitment"), [secret_cell, zero_cell])?;
 
         //iterate through each level of the tree, from leaf to root
         for i in 0..DEPTH {

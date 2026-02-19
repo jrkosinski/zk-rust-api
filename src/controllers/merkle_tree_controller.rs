@@ -1,5 +1,5 @@
 use crate::services::merkle_tree_service::{
-    parse_fp_hex, RegisterRequest, TreeResponse, MerkleTreeService,
+    parse_fp_hex, MerkleTreeService, RegisterRequest, TreeResponse,
 };
 use rust_api::prelude::*;
 use std::sync::Arc;
@@ -28,8 +28,11 @@ pub async fn register(
     Json(request): Json<RegisterRequest>,
 ) -> impl IntoResponse {
     match parse_fp_hex(&request.commitment) {
-        Some(commitment) => (StatusCode::OK, Json(service.register_commitment(commitment))).into_response(),
-        None => (StatusCode::BAD_REQUEST, "invalid commitment: expected 64-char hex (32 bytes)").into_response(),
+        Some(commitment) => {
+            (StatusCode::OK, Json(service.register_commitment(commitment))).into_response()
+        },
+        None => (StatusCode::BAD_REQUEST, "invalid commitment: expected 64-char hex (32 bytes)")
+            .into_response(),
     }
 }
 
@@ -61,9 +64,7 @@ pub async fn add_to_tree(
 /// Returns a TreeVisualizationResponse containing the URL to the generated image.
 /// The image shows the tree structure with nodes and hash values (truncated).
 #[get("/tree/visualize")]
-pub async fn visualize_tree(
-    State(service): State<Arc<MerkleTreeService>>,
-) -> impl IntoResponse {
+pub async fn visualize_tree(State(service): State<Arc<MerkleTreeService>>) -> impl IntoResponse {
     match service.visualize_tree() {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),

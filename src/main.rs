@@ -1,22 +1,21 @@
 use rust_api::prelude::*;
 use std::sync::Arc;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tower_http::services::ServeDir;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod controllers;
 mod services;
 
 // Import controller handlers and their macro-generated path constants
-use controllers::health_controller::{__health_check_route, health_check};
-use controllers::zk_controller::{__post_zk_route, post_zk};
-use controllers::merkle_tree_controller::{
-    __add_to_tree_route, add_to_tree,
-    __register_route, register,
-    __visualize_tree_route, visualize_tree,
-};
 use crate::services::health_service::HealthService;
-use crate::services::zk_service::ZKService;
 use crate::services::merkle_tree_service::MerkleTreeService;
+use crate::services::zk_service::ZKService;
+use controllers::health_controller::{__health_check_route, health_check};
+use controllers::merkle_tree_controller::{
+    __add_to_tree_route, __register_route, __visualize_tree_route, add_to_tree, register,
+    visualize_tree,
+};
+use controllers::zk_controller::{__post_zk_route, post_zk};
 
 /// Root endpoint handler that returns a welcome message.
 #[get("/")]
@@ -34,7 +33,7 @@ async fn main() {
 
     // Start the server using RustAPI framework
     RustAPI::new(app)
-        .port(3000)  // Configurable port (default is 3000)
+        .port(3000) // Configurable port (default is 3000)
         .serve()
         .await
         .expect("Failed to start server");
