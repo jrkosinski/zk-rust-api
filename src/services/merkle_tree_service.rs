@@ -199,14 +199,14 @@ impl MerkleTreeService {
                     // Line to left child
                     root.draw(&PathElement::new(
                         vec![(x as i32, y as i32), (child_left_x as i32, next_y as i32)],
-                        &BLACK,
+                        BLACK,
                     ))
                     .map_err(|e| format!("Line error: {}", e))?;
 
                     // Line to right child
                     root.draw(&PathElement::new(
                         vec![(x as i32, y as i32), (child_right_x as i32, next_y as i32)],
-                        &BLACK,
+                        BLACK,
                     ))
                     .map_err(|e| format!("Line error: {}", e))?;
                 }

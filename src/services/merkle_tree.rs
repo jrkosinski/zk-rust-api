@@ -26,6 +26,7 @@ impl From<Fp> for LeafValue {
 /// Represents a Merkle proof for a specific leaf.
 /// Contains the sibling nodes and direction bits needed to reconstruct the path to the root.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct MerkleProof {
     /// The leaf value being proven
     pub leaf: Fp,
