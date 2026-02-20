@@ -38,7 +38,7 @@ plotters = "0.3"
 tower-http = { version = "0.6", features = ["fs"] }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 proptest = "1.5"
 
 [profile.release]
