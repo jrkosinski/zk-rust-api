@@ -4,6 +4,8 @@ use crate::services::merkle_tree_service::{
 use rust_api::prelude::*;
 use std::sync::Arc;
 
+pub struct MerkleTreeController;
+
 /// Request body for adding a value to the tree.
 #[derive(Debug, Deserialize)]
 pub struct AddToTreeRequest {
@@ -70,3 +72,9 @@ pub async fn visualize_tree(State(service): State<Arc<MerkleTreeService>>) -> im
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     }
 }
+
+mount_handlers!(MerkleTreeController, MerkleTreeService, [
+    (__register_route, register),
+    (__add_to_tree_route, add_to_tree),
+    (__visualize_tree_route, visualize_tree),
+]);

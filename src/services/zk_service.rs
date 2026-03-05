@@ -19,8 +19,6 @@ pub struct ZKService {
     tree_service: Arc<MerkleTreeService>,
 }
 
-impl Injectable for ZKService {}
-
 impl ZKService {
     /// Creates a new ZKService with a reference to the MerkleTreeService.
     /// The tree is accessed from MerkleTreeService, which maintains the shared default tree.

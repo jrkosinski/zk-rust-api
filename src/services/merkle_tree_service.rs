@@ -30,8 +30,6 @@ pub struct MerkleTreeService {
     tree: Mutex<MerkleTree>,
 }
 
-impl Injectable for MerkleTreeService {}
-
 /// Computes Poseidon(secret) natively, returning the commitment as Fp.
 pub fn poseidon_commit(secret: u64) -> Fp {
     PoseidonHash::<Fp, P128Pow5T3, ConstantLength<2>, 3, 2>::init()

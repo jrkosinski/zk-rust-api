@@ -10,8 +10,6 @@ pub struct HealthService {
     //state here
 }
 
-impl Injectable for HealthService {}
-
 impl HealthService {
     pub fn new() -> Self {
         Self {

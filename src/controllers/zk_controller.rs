@@ -2,6 +2,8 @@ use crate::services::zk_service::{ZKProofResponse, ZKService};
 use rust_api::prelude::*;
 use std::sync::Arc;
 
+pub struct ZKController;
+
 /// Request body for the ZK proof endpoint.
 /// The secret is the private value whose Poseidon commitment must be in the tree.
 #[derive(Deserialize)]
@@ -26,3 +28,7 @@ pub async fn post_zk(
 ) -> Json<ZKProofResponse> {
     Json(service.zk_proof(request.secret))
 }
+
+mount_handlers!(ZKController, ZKService, [
+    (__post_zk_route, post_zk),
+]);
